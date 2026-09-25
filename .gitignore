@@ -36,5 +36,8 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Logs
+# Logs (never tracked)
+logs/
 *.log
+*.log.*
+!docs/**/*.log
