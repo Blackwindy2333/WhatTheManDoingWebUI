@@ -12,10 +12,8 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
-    PlainTextResponse,
     StreamingResponse,
 )
-from fastapi.staticfiles import StaticFiles
 
 from server.aggregate import DeviceAggregator, default_fetcher
 from server.auth import AdminAuthenticator, extract_client_ip
