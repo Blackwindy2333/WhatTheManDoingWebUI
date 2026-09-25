@@ -11,6 +11,7 @@
   "show_history": true,
   "devices_per_page": 12,
   "trust_proxy": false,
+  "forwarded_allow_ips": "*",
   "default_device_scheme": "http",
   "serve": {
     "mode": "http",

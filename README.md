@@ -74,6 +74,7 @@ python -m pytest
 | `show_history` | `true` | 是否展示历史时间线 |
 | `default_device_scheme` | `http` | 设备 URL 无协议时的默认前缀 |
 | `trust_proxy` | `false` | 是否信任 `X-Forwarded-For` |
+| `forwarded_allow_ips` | `*` | uvicorn 可信代理 IP（穿透/反代） |
 | `serve.mode` | `http` | WebUI 自身对外协议 |
 | `log.level` | `INFO` | DEBUG / INFO / WARNING / ERROR / CRITICAL |
 | `log.dir` | `logs` | 日志目录（**git 忽略**） |
@@ -91,6 +92,42 @@ python -m pytest
 管理（`Authorization: Bearer <session>`）：`POST /api/admin/login` · `logout` · `me` · `config`（GET/PATCH）· `devices` CRUD · `devices/{id}/test` · `devices/export` · `stats` · `bans` · `audit`
 
 响应 envelope 与主项目一致：`{code, message, data}`。
+
+---
+
+## 内网穿透 / 公网访问
+
+终端出现下列警告时，**几乎都是「HTTPS 或非法字节」直接打进了 HTTP 端口**（浏览器/扫描器/TLS ClientHello），不是业务逻辑崩溃：
+
+```text
+WARNING:  Invalid HTTP request received.
+h11._util.LocalProtocolError: can't handle event type Response when role=SERVER and state=MUST_CLOSE
+```
+
+### 正确接入方式（二选一）
+
+| 方式 | 穿透/反代侧 | 本 WebUI `serve` | 浏览器访问 |
+|------|-------------|------------------|------------|
+| **A. 隧道终结 TLS（推荐）** | 提供 `https://`，解密后转 **HTTP** 到 `127.0.0.1:8080` | `mode: "http"` | `https://你的域名` |
+| **B. TLS 透传 / 本机 HTTPS** | 原样转发 TCP，或本机直接挂证书 | `mode: "https"` + 证书路径 | `https://你的域名或IP:端口` |
+
+若隧道只给了 `http://`，请用 **http://** 打开；不要把 `https://` 指到未开 TLS 的端口。
+
+### 排查步骤
+
+1. 本机先确认：`http://127.0.0.1:8080/` 正常。  
+2. 打开 `GET /api/public/probe`：看 `scheme`、`x_forwarded_proto`、`resolved_ip`。  
+3. 公网若走反代/隧道：把 `trust_proxy` 设为 `true`（可选 `forwarded_allow_ips` 限制可信来源，如隧道节点 IP；默认 `*`）。  
+4. 仍见 `Invalid HTTP`：多半是扫描器或浏览器用了错误协议——属噪音；确认业务页面能打开即可。  
+5. 自签证书告警属浏览器行为，与本错误无关。
+
+### 相关配置
+
+| 字段 | 说明 |
+|------|------|
+| `serve.mode` | `http` / `https`（https 必须填证书） |
+| `trust_proxy` | 信任 `X-Forwarded-For` / 真实 IP，用于封禁与计数 |
+| `forwarded_allow_ips` | 交给 uvicorn 的可信代理 IP（`*` 或逗号分隔） |
 
 ---
 
