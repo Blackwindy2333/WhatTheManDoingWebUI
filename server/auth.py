@@ -11,7 +11,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from server.config import WebUIConfig
+from server.log_setup import get_logger
 from server.state import StateStore, utc_now_iso
+
+logger = get_logger("auth")
 
 
 def utc_now() -> datetime:
@@ -136,6 +139,7 @@ class BanService:
             self.store.ban_ip(ip, utc_now_iso(), expires_at)
             self.store.reset_login_failures(ip)
             banned = True
+            logger.warning("ban ip=%s until=%s reason=login_failures", ip, expires_at)
         return {"failures": count, "banned": banned, "expires_at": expires_at}
 
     def clear_failures(self, ip: str) -> None:
@@ -179,6 +183,7 @@ class AdminAuthenticator:
         """Attempt login. Returns result dict; may raise via status flags."""
         banned, expires_at = self.bans.is_banned(ip)
         if banned:
+            logger.warning("login blocked (banned) ip=%s until=%s", ip, expires_at)
             return {
                 "ok": False,
                 "status": 403,
@@ -187,6 +192,7 @@ class AdminAuthenticator:
                 "expires_at": expires_at,
             }
         if self.login_rate_limited(ip):
+            logger.warning("login rate limited ip=%s", ip)
             return {
                 "ok": False,
                 "status": 429,
@@ -201,6 +207,12 @@ class AdminAuthenticator:
                 self.config.ban_duration_hours,
             )
             self.store.append_audit(ip, "login_failed", f"failures={outcome['failures']}")
+            logger.warning(
+                "login failed ip=%s failures=%s banned=%s",
+                ip,
+                outcome["failures"],
+                outcome["banned"],
+            )
             return {
                 "ok": False,
                 "status": 401,
@@ -212,6 +224,7 @@ class AdminAuthenticator:
         self.bans.clear_failures(ip)
         session = self.sessions.create()
         self.store.append_audit(ip, "login_ok")
+        logger.info("login ok ip=%s", ip)
         return {
             "ok": True,
             "status": 200,
@@ -226,6 +239,7 @@ class AdminAuthenticator:
     def logout(self, ip: str, session_token: str | None) -> None:
         self.sessions.revoke(session_token)
         self.store.append_audit(ip, "logout")
+        logger.info("logout ip=%s", ip)
 
     def require_session(self, authorization: str | None) -> Session | None:
         token = None
