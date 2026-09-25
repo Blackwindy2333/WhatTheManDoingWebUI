@@ -24,12 +24,20 @@ def device_to_dict(device: DeviceConfig) -> dict[str, Any]:
 
 
 def apply_scheme(url: str, scheme: str, default_scheme: str = "http") -> str:
-    """Ensure URL has a scheme; rewrite scheme when only host path given or scheme mismatch on update."""
+    """Ensure URL has a scheme and a host; empty input stays empty for validation to reject."""
     url = url.strip()
+    if not url:
+        return ""
     if url.startswith("http://") or url.startswith("https://"):
-        # Explicit scheme wins unless caller passes empty original scheme rewrite
-        return normalize_api_url(url)
+        normalized = normalize_api_url(url)
+        # "http://" or "https://" with no host is invalid
+        rest = normalized.split("://", 1)[-1]
+        if not rest:
+            return ""
+        return normalized
     url = url.lstrip("/")
+    if not url:
+        return ""
     chosen = scheme if scheme in ("http", "https") else default_scheme
     return normalize_api_url(f"{chosen}://{url}")
 
@@ -82,12 +90,17 @@ def upsert_device(config: WebUIConfig, raw: dict[str, Any], *, replace_id: str |
         str(raw.get("api_base_url") or ""),
         config.default_device_scheme,
     )
+    if not api_base_url:
+        raise ConfigError("api_base_url is required")
+    enabled = raw.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError("enabled must be a bool")
     entry = {
         "id": device_id,
         "name": str(raw.get("name") or device_id),
         "api_base_url": api_base_url,
         "viewer_token": str(raw.get("viewer_token") or ""),
-        "enabled": bool(raw.get("enabled", True)),
+        "enabled": enabled,
     }
 
     devices = data["devices"]
