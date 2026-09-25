@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +39,10 @@ from server.devices import (
     test_device_connection,
     upsert_device,
 )
+from server.log_setup import get_logger, setup_logging, tail_logs
 from server.state import StateStore, utc_now_iso
+
+logger = get_logger("http")
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,6 +86,14 @@ def create_app(
     auth = authenticator or AdminAuthenticator(cfg, store)
     agg = aggregator or DeviceAggregator(cfg, fetcher=default_fetcher)
 
+    # File + console logging (logs/ is gitignored)
+    log_base = Path(cfg_path).parent if config_path else ROOT
+    try:
+        log_path = setup_logging(cfg.log, base=log_base)
+        logger.info("logging configured path=%s level=%s", log_path, cfg.log.level)
+    except OSError:
+        logging.getLogger("webui").exception("failed to configure file logging")
+
     app = FastAPI(title="WhatTheManDoing WebUI", version="1.0.0")
     app.state.config = cfg
     app.state.config_path = cfg_path
@@ -122,16 +135,31 @@ def create_app(
         return ip
 
     def _reload_config(new_cfg: WebUIConfig) -> None:
+        previous_log = app.state.config.log
         app.state.config = new_cfg
         auth.update_config(new_cfg)
         agg.update_config(new_cfg)
         save_config(new_cfg, app.state.config_path)
+        if new_cfg.log != previous_log:
+            try:
+                setup_logging(new_cfg.log, base=log_base, force=True)
+                logger.info(
+                    "logging reconfigured path level=%s dir=%s filename=%s",
+                    new_cfg.log.level,
+                    new_cfg.log.dir,
+                    new_cfg.log.filename,
+                )
+            except OSError:
+                logging.getLogger("webui").exception("failed to reconfigure logging")
 
     @app.middleware("http")
     async def visit_and_ban_middleware(request: Request, call_next):
+        started = time.perf_counter()
         ip = _client_ip(request)
+        path = request.url.path
         banned, expires_at = auth.bans.is_banned(ip)
         if banned:
+            logger.warning("reject banned ip=%s %s %s until=%s", ip, request.method, path, expires_at)
             return JSONResponse(
                 status_code=403,
                 content=envelope(
@@ -141,11 +169,35 @@ def create_app(
                 ),
             )
         # Count page / API visits (not static asset noise if possible)
-        path = request.url.path
         if not path.startswith("/assets/") and path not in ("/favicon.ico",):
             day = utc_now_iso()[:10]
             store.record_visit(day)
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            logger.exception(
+                "request error %s %s ip=%s duration_ms=%s",
+                request.method,
+                path,
+                ip,
+                duration_ms,
+            )
+            raise
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        if app.state.config.log.access_log:
+            # Skip noisy static assets at INFO when desired; still log API calls
+            is_static = path in ("/", "/styles.css", "/app.js") or path.startswith("/assets/")
+            level = logging.DEBUG if is_static else logging.INFO
+            logger.log(
+                level,
+                "request %s %s -> %s duration_ms=%s ip=%s",
+                request.method,
+                path,
+                response.status_code,
+                duration_ms,
+                ip,
+            )
         return response
 
     # ----- static front-end -------------------------------------------------
@@ -271,8 +323,10 @@ def create_app(
             merged = _merge_settings(app.state.config, body)
             _reload_config(merged)
         except ConfigError as exc:
+            logger.warning("config update rejected ip=%s error=%s", ip, exc)
             return fail(400, CODE_BAD_REQUEST, str(exc))
         store.append_audit(ip, "update_config", ",".join(sorted(body.keys())))
+        logger.info("config updated ip=%s keys=%s", ip, ",".join(sorted(body.keys())))
         return ok(config_to_admin_dict(app.state.config))
 
     # ----- admin devices ---------------------------------------------------
@@ -301,8 +355,10 @@ def create_app(
             merged = upsert_device(app.state.config, body)
             _reload_config(merged)
         except ConfigError as exc:
+            logger.warning("device create rejected ip=%s error=%s", ip, exc)
             return fail(400, CODE_BAD_REQUEST, str(exc))
         store.append_audit(ip, "device_create", str(body.get("id")))
+        logger.info("device created ip=%s id=%s", ip, body.get("id"))
         return ok(_device_payload(str(body.get("id"))))
 
     @app.put("/api/admin/devices/{device_id}")
@@ -320,8 +376,10 @@ def create_app(
             merged = upsert_device(app.state.config, body, replace_id=device_id)
             _reload_config(merged)
         except ConfigError as exc:
+            logger.warning("device update rejected ip=%s id=%s error=%s", ip, device_id, exc)
             return fail(400, CODE_BAD_REQUEST, str(exc))
         store.append_audit(ip, "device_update", device_id)
+        logger.info("device updated ip=%s id=%s", ip, device_id)
         return ok(_device_payload(device_id))
 
     @app.delete("/api/admin/devices/{device_id}")
@@ -333,8 +391,10 @@ def create_app(
             merged = delete_device(app.state.config, device_id)
             _reload_config(merged)
         except ConfigError as exc:
+            logger.warning("device delete rejected ip=%s id=%s error=%s", ip, device_id, exc)
             return fail(404, CODE_NOT_FOUND, str(exc))
         store.append_audit(ip, "device_delete", device_id)
+        logger.info("device deleted ip=%s id=%s", ip, device_id)
         return ok({"deleted": device_id})
 
     @app.get("/api/admin/devices/export")
@@ -344,6 +404,7 @@ def create_app(
             "devices": [device_to_dict(d) for d in app.state.config.devices],
         }
         store.append_audit(ip, "device_export", f"count={len(payload['devices'])}")
+        logger.info("device export ip=%s count=%s", ip, len(payload["devices"]))
         return JSONResponse(
             content=envelope(CODE_OK, "ok", payload),
             headers={"Content-Disposition": "attachment; filename=devices.json"},
@@ -357,6 +418,7 @@ def create_app(
         device = _find_device(device_id)
         report = await test_device_connection(device)
         store.append_audit(ip, "device_test", f"{device_id} ok={report.get('ok')}")
+        logger.info("device test requested ip=%s id=%s ok=%s", ip, device_id, report.get("ok"))
         return ok(report)
 
     # ----- admin stats / bans / audit --------------------------------------
@@ -377,6 +439,7 @@ def create_app(
     ) -> JSONResponse:
         removed = store.unban_ip(ban_ip)
         store.append_audit(ip, "unban", ban_ip)
+        logger.info("unban ip=%s target=%s removed=%s", ip, ban_ip, removed)
         return ok({"unbanned": removed, "ip": ban_ip})
 
     @app.get("/api/admin/audit")
@@ -385,6 +448,14 @@ def create_app(
         ip: str = Depends(_require_admin),
     ) -> JSONResponse:
         return ok({"entries": store.list_audit(limit=limit)})
+
+    @app.get("/api/admin/logs")
+    def admin_logs(
+        lines: int = Query(default=100, ge=1, le=1000),
+        ip: str = Depends(_require_admin),
+    ) -> JSONResponse:
+        payload = tail_logs(lines=lines)
+        return ok(payload)
 
     def _find_device(device_id: str) -> DeviceConfig:
         for device in app.state.config.devices:
@@ -483,4 +554,25 @@ def _merge_settings(config: WebUIConfig, body: dict[str, Any]) -> WebUIConfig:
         "serve": _merge_serve(config, body),
         "devices": [device_to_dict(d) for d in config.devices],
     }
+    if isinstance(body.get("log"), dict):
+        log_body = body["log"]
+        data["log"] = {
+            "level": log_body.get("level", config.log.level),
+            "dir": log_body.get("dir", config.log.dir),
+            "filename": log_body.get("filename", config.log.filename),
+            "max_bytes": log_body.get("max_bytes", config.log.max_bytes),
+            "backup_count": log_body.get("backup_count", config.log.backup_count),
+            "console": log_body.get("console", config.log.console),
+            "access_log": log_body.get("access_log", config.log.access_log),
+        }
+    else:
+        data["log"] = {
+            "level": body.get("log_level", config.log.level),
+            "dir": body.get("log_dir", config.log.dir),
+            "filename": body.get("log_filename", config.log.filename),
+            "max_bytes": body.get("log_max_bytes", config.log.max_bytes),
+            "backup_count": body.get("log_backup_count", config.log.backup_count),
+            "console": body.get("log_console", config.log.console),
+            "access_log": body.get("log_access_log", config.log.access_log),
+        }
     return validate_config_dict(data)
