@@ -75,6 +75,13 @@ python -m pytest
 | `default_device_scheme` | `http` | 设备 URL 无协议时的默认前缀 |
 | `trust_proxy` | `false` | 是否信任 `X-Forwarded-For` |
 | `serve.mode` | `http` | WebUI 自身对外协议 |
+| `log.level` | `INFO` | DEBUG / INFO / WARNING / ERROR / CRITICAL |
+| `log.dir` | `logs` | 日志目录（**git 忽略**） |
+| `log.filename` | `webui.log` | 主日志文件名，按大小轮转 |
+| `log.max_bytes` | `5242880` | 单文件上限（约 5MB） |
+| `log.backup_count` | `5` | 轮转保留份数 |
+| `log.console` | `true` | 是否同时打到控制台 |
+| `log.access_log` | `true` | 是否记录 HTTP 访问日志 |
 | `devices[]` | 见 example | `id` / `name` / `api_base_url` / `viewer_token` / `enabled` |
 
 ## API（本 WebUI）
@@ -84,6 +91,23 @@ python -m pytest
 管理（`Authorization: Bearer <session>`）：`POST /api/admin/login` · `logout` · `me` · `config`（GET/PATCH）· `devices` CRUD · `devices/{id}/test` · `devices/export` · `stats` · `bans` · `audit`
 
 响应 envelope 与主项目一致：`{code, message, data}`。
+
+---
+
+## 日志
+
+默认写入 `logs/webui.log`（按 `max_bytes` / `backup_count` 轮转为 `webui.log.1` …），可选同步控制台。**`logs/` 与 `*.log` 已在 `.gitignore` 中，不会被 git 跟踪。**
+
+| 通道 | logger | 内容 |
+|------|--------|------|
+| 访问 | `webui.http` | 方法、路径、状态码、耗时、客户端 IP；封禁拒绝；未捕获异常堆栈 |
+| 鉴权 | `webui.auth` | 登录成功/失败、限流、封禁、登出 |
+| 聚合 | `webui.aggregate` | 各设备拉取成功（DEBUG）/失败、刷新批次异常 |
+| 设备 | `webui.devices` | 测试连接结果 |
+| 启停 | `webui.startup` | 进程启动/停止、监听参数 |
+
+管理后台「审计」页可点「查看最近日志」；或调用 `GET /api/admin/logs?lines=100`。  
+修改 `log.*` 配置会立即重建日志 handler（级别/路径生效）；`serve.*` 仍需重启进程。
 
 ---
 
@@ -124,3 +148,6 @@ python -m pytest
 
 12. **不要在开发中期启动应用联调**  
     以 `python -m pytest` 为准；全部代码完成后再做运行时验证。
+
+13. **日志体积与脱敏**  
+    访问日志会记录 IP 与路径，不会记录 `admin_token` / `viewer_token`。若日志目录在共享盘，请自行收紧目录权限；`backup_count=0` 表示不保留旧轮转文件。
