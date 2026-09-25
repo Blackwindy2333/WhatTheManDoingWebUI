@@ -102,8 +102,14 @@ function formatUpdated(epochSeconds) {
 }
 
 function statusBadge(device) {
+  if (device.enabled === false) {
+    return { cls: "warn", label: "已停用" };
+  }
   if (device.status === "paused") {
     return { cls: "warn", label: "已暂停" };
+  }
+  if (device.status === "stopped") {
+    return { cls: "danger", label: "已停止" };
   }
   if (device.online && device.healthy !== false && !device.error) {
     return { cls: "ok", label: "在线" };
@@ -130,7 +136,7 @@ function renderPublicConfig() {
 function renderDevices() {
   const devices = state.devices || [];
   el.deviceGrid.innerHTML = "";
-  const online = devices.filter((d) => d.online).length;
+  const online = devices.filter((d) => d.online && d.enabled !== false).length;
   el.statOnline.textContent = String(online);
   el.statTotal.textContent = String(devices.length);
   el.deviceCount.textContent = devices.length ? `${devices.length} 台` : "";
