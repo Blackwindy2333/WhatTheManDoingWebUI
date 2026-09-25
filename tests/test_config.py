@@ -85,9 +85,23 @@ def test_save_load_roundtrip(tmp_path):
     cfg = default_config()
     cfg.default_device_scheme = "https"
     cfg.trust_proxy = True
+    cfg.forwarded_allow_ips = "127.0.0.1,10.0.0.1"
     save_config(cfg, path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["default_device_scheme"] == "https"
     assert raw["trust_proxy"] is True
+    assert raw["forwarded_allow_ips"] == "127.0.0.1,10.0.0.1"
     loaded = load_config(path)
     assert loaded.trust_proxy is True
+    assert loaded.forwarded_allow_ips == "127.0.0.1,10.0.0.1"
+
+
+def test_validate_rejects_empty_forwarded_allow_ips():
+    data = {
+        "version": 1,
+        "admin_token": "x",
+        "forwarded_allow_ips": "  ",
+        "devices": [],
+    }
+    with pytest.raises(ConfigError, match="forwarded_allow_ips"):
+        validate_config_dict(data)

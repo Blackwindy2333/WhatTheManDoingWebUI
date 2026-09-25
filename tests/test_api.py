@@ -29,6 +29,36 @@ def test_public_config(client: TestClient):
     assert "admin_token" not in body["data"]
 
 
+def test_public_probe_reports_proxy_headers(client: TestClient):
+    resp = client.get(
+        "/api/public/probe",
+        headers={
+            "X-Forwarded-For": "203.0.113.9, 10.0.0.1",
+            "X-Forwarded-Proto": "https",
+            "X-Real-IP": "203.0.113.9",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["forwarded"]["x_forwarded_proto"] == "https"
+    assert data["forwarded"]["x_forwarded_for"] == "203.0.113.9, 10.0.0.1"
+    assert data["trust_proxy"] is False
+    # Without trust_proxy, resolved_ip should not use XFF
+    assert data["resolved_ip"] == data["client_host"]
+
+
+def test_public_probe_trust_proxy(client: TestClient, webui_config):
+    webui_config.trust_proxy = True
+    resp = client.get(
+        "/api/public/probe",
+        headers={"X-Forwarded-For": "198.51.100.7"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["trust_proxy"] is True
+    assert data["resolved_ip"] == "198.51.100.7"
+
+
 def test_public_devices_lists_enabled_and_health(client: TestClient, aggregator: DummyAggregator):
     aggregator._forced["pc-1"] = _snap("pc-1", name="PC One")
     resp = client.get("/api/public/devices")
