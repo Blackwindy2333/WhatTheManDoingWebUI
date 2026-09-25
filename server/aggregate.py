@@ -10,6 +10,9 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 from server.config import DeviceConfig, WebUIConfig
+from server.log_setup import get_logger
+
+logger = get_logger("aggregate")
 
 FetchResult = dict[str, Any]
 Fetcher = Callable[[DeviceConfig], Awaitable[FetchResult]]
@@ -235,8 +238,27 @@ class DeviceAggregator:
                     snap.error = str(result) or result.__class__.__name__
                     snap.updated_at = time.time()
                     self._snapshots[device.id] = snap
+                    logger.warning(
+                        "device fetch exception id=%s error=%s",
+                        device.id,
+                        snap.error,
+                    )
                 else:
-                    self._snapshots[device.id] = build_snapshot(device, result)
+                    snap = build_snapshot(device, result)
+                    self._snapshots[device.id] = snap
+                    if not result.get("ok"):
+                        logger.warning(
+                            "device fetch failed id=%s status=%s error=%s",
+                            device.id,
+                            result.get("http_status"),
+                            result.get("error"),
+                        )
+                    else:
+                        logger.debug(
+                            "device fetch ok id=%s latency_ms=%s",
+                            device.id,
+                            result.get("latency_ms"),
+                        )
             # Drop snapshots for removed devices
             known = {d.id for d in self.config.devices}
             for key in list(self._snapshots):
@@ -288,7 +310,7 @@ class DeviceAggregator:
                 await self.refresh_once()
             except Exception:
                 # Keep the loop alive even if a refresh batch fails.
-                pass
+                logger.exception("aggregator refresh batch failed")
             try:
                 await asyncio.wait_for(self._stopped.wait(), timeout=self.config.refresh_interval_seconds)
             except asyncio.TimeoutError:
