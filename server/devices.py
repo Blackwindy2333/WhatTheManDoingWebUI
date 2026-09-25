@@ -54,6 +54,15 @@ def upsert_device(config: WebUIConfig, raw: dict[str, Any], *, replace_id: str |
             "ssl_certfile": config.serve.ssl_certfile,
             "ssl_keyfile": config.serve.ssl_keyfile,
         },
+        "log": {
+            "level": config.log.level,
+            "dir": config.log.dir,
+            "filename": config.log.filename,
+            "max_bytes": config.log.max_bytes,
+            "backup_count": config.log.backup_count,
+            "console": config.log.console,
+            "access_log": config.log.access_log,
+        },
         "devices": [device_to_dict(d) for d in config.devices],
     }
 
@@ -118,6 +127,15 @@ def upsert_config_devices(config: WebUIConfig, devices: list[dict[str, Any]]) ->
             "port": config.serve.port,
             "ssl_certfile": config.serve.ssl_certfile,
             "ssl_keyfile": config.serve.ssl_keyfile,
+        },
+        "log": {
+            "level": config.log.level,
+            "dir": config.log.dir,
+            "filename": config.log.filename,
+            "max_bytes": config.log.max_bytes,
+            "backup_count": config.log.backup_count,
+            "console": config.log.console,
+            "access_log": config.log.access_log,
         },
         "devices": devices,
     }
