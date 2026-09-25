@@ -19,6 +19,15 @@
     "ssl_certfile": null,
     "ssl_keyfile": null
   },
+  "log": {
+    "level": "INFO",
+    "dir": "logs",
+    "filename": "webui.log",
+    "max_bytes": 5242880,
+    "backup_count": 5,
+    "console": true,
+    "access_log": true
+  },
   "devices": [
     {
       "id": "my-pc",
