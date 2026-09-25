@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -28,7 +29,6 @@ from server.config import (
     config_to_admin_dict,
     config_to_public_dict,
     ensure_config,
-    load_config,
     save_config,
     validate_config_dict,
 )
@@ -101,6 +101,35 @@ def create_app(
     app.state.auth = auth
     app.state.aggregator = agg
 
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(_request: Request, exc: HTTPException):
+        detail = exc.detail
+        if isinstance(detail, dict) and "code" in detail and "message" in detail:
+            return JSONResponse(status_code=exc.status_code, content=detail)
+        if exc.status_code == 401:
+            code = CODE_UNAUTHORIZED
+        elif exc.status_code == 403:
+            code = CODE_FORBIDDEN
+        elif exc.status_code == 404:
+            code = CODE_NOT_FOUND
+        elif exc.status_code == 429:
+            code = CODE_RATE_LIMITED
+        elif exc.status_code >= 500:
+            code = CODE_INTERNAL
+        else:
+            code = CODE_BAD_REQUEST
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=envelope(code, str(detail), None),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+        return JSONResponse(
+            status_code=400,
+            content=envelope(CODE_BAD_REQUEST, "validation error", {"errors": exc.errors()}),
+        )
+
     def _client_ip(request: Request) -> str:
         return extract_client_ip(
             request.headers.get("x-forwarded-for"),
@@ -168,8 +197,10 @@ def create_app(
                     {"banned": True, "expires_at": expires_at},
                 ),
             )
-        # Count page / API visits (not static asset noise if possible)
-        if not path.startswith("/assets/") and path not in ("/favicon.ico",):
+        # Count real page/API visits only — not CSS/JS/favicon asset loads
+        static_paths = {"/styles.css", "/app.js", "/favicon.ico"}
+        countable = request.method == "GET" and path not in static_paths and not path.startswith("/assets/")
+        if countable:
             day = utc_now_iso()[:10]
             store.record_visit(day)
         try:
@@ -378,16 +409,17 @@ def create_app(
         if body is None:
             return fail(400, CODE_BAD_REQUEST, "invalid JSON body")
         try:
-            if any(d.id == str(body.get("id") or "") for d in app.state.config.devices):
-                raise ConfigError(f"device id already exists: {body.get('id')}")
+            new_id = str(body.get("id") or "").strip()
+            if any(d.id == new_id for d in app.state.config.devices):
+                raise ConfigError(f"device id already exists: {new_id}")
             merged = upsert_device(app.state.config, body)
             _reload_config(merged)
         except ConfigError as exc:
             logger.warning("device create rejected ip=%s error=%s", ip, exc)
             return fail(400, CODE_BAD_REQUEST, str(exc))
-        store.append_audit(ip, "device_create", str(body.get("id")))
-        logger.info("device created ip=%s id=%s", ip, body.get("id"))
-        return ok(_device_payload(str(body.get("id"))))
+        store.append_audit(ip, "device_create", new_id)
+        logger.info("device created ip=%s id=%s", ip, new_id)
+        return ok(_device_payload(new_id))
 
     @app.put("/api/admin/devices/{device_id}")
     async def admin_update_device(
