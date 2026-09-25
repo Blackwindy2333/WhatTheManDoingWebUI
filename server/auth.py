@@ -118,7 +118,8 @@ class BanService:
             return False, None
         expires = parse_iso(record.expires_at)
         now = utc_now()
-        if expires is not None and expires <= now:
+        # Unparseable expiry → treat as expired rather than permanent ban
+        if expires is None or expires <= now:
             self.store.unban_ip(ip)
             return False, None
         return True, record.expires_at
@@ -172,9 +173,10 @@ class AdminAuthenticator:
         limit = self.config.login_rate_limit_per_minute
         with self._login_lock:
             hits = [ts for ts in self._login_hits.get(ip, []) if now - ts < window]
+            limited = len(hits) >= limit
             hits.append(now)
             self._login_hits[ip] = hits
-            return len(hits) > limit
+            return limited
 
     def check_password(self, token: str) -> bool:
         return hmac.compare_digest(token.encode("utf-8"), self.config.admin_token.encode("utf-8"))
