@@ -89,7 +89,7 @@ def create_app(
     # File + console logging (logs/ is gitignored)
     log_base = Path(cfg_path).parent if config_path else ROOT
     try:
-        log_path = setup_logging(cfg.log, base=log_base)
+        log_path = setup_logging(cfg.log, base=log_base, force=True)
         logger.info("logging configured path=%s level=%s", log_path, cfg.log.level)
     except OSError:
         logging.getLogger("webui").exception("failed to configure file logging")
