@@ -11,6 +11,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = ROOT / "config.json"
 DEFAULT_STATE_PATH = ROOT / "state.json"
+DEFAULT_LOG_DIR = "logs"
+
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
@@ -26,6 +29,17 @@ class ServeConfig:
     port: int = 8080
     ssl_certfile: str | None = None
     ssl_keyfile: str | None = None
+
+
+@dataclass
+class LogConfig:
+    level: str = "INFO"
+    dir: str = DEFAULT_LOG_DIR
+    filename: str = "webui.log"
+    max_bytes: int = 5 * 1024 * 1024
+    backup_count: int = 5
+    console: bool = True
+    access_log: bool = True
 
 
 @dataclass
@@ -53,6 +67,7 @@ class WebUIConfig:
     trust_proxy: bool = False
     default_device_scheme: str = "http"
     serve: ServeConfig = field(default_factory=ServeConfig)
+    log: LogConfig = field(default_factory=LogConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
 
 
@@ -206,6 +221,35 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
     if serve_mode == "https" and (not ssl_certfile or not ssl_keyfile):
         raise ConfigError("serve.mode https requires ssl_certfile and ssl_keyfile")
 
+    log_raw = data.get("log", {})
+    if not isinstance(log_raw, dict):
+        raise ConfigError("log must be an object")
+    log_level = str(log_raw.get("level", "INFO")).upper()
+    if log_level not in _LOG_LEVELS:
+        raise ConfigError(f"log.level must be one of {', '.join(_LOG_LEVELS)}")
+    log_dir = log_raw.get("dir", DEFAULT_LOG_DIR)
+    if not isinstance(log_dir, str) or not log_dir.strip():
+        raise ConfigError("log.dir must be a non-empty string")
+    log_filename = log_raw.get("filename", "webui.log")
+    if not isinstance(log_filename, str) or not log_filename.strip():
+        raise ConfigError("log.filename must be a non-empty string")
+    log_max_bytes = log_raw.get("max_bytes", 5 * 1024 * 1024)
+    if isinstance(log_max_bytes, bool) or not isinstance(log_max_bytes, int):
+        raise ConfigError("log.max_bytes must be int")
+    if log_max_bytes < 1024 or log_max_bytes > 100 * 1024 * 1024:
+        raise ConfigError("log.max_bytes must be between 1024 and 104857600")
+    log_backup_count = log_raw.get("backup_count", 5)
+    if isinstance(log_backup_count, bool) or not isinstance(log_backup_count, int):
+        raise ConfigError("log.backup_count must be int")
+    if log_backup_count < 0 or log_backup_count > 50:
+        raise ConfigError("log.backup_count must be between 0 and 50")
+    log_console = log_raw.get("console", True)
+    if not isinstance(log_console, bool):
+        raise ConfigError("log.console must be a bool")
+    log_access = log_raw.get("access_log", True)
+    if not isinstance(log_access, bool):
+        raise ConfigError("log.access_log must be a bool")
+
     devices_raw = data.get("devices", [])
     if not isinstance(devices_raw, list):
         raise ConfigError("devices must be a list")
@@ -239,6 +283,15 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
             ssl_certfile=ssl_certfile or None,
             ssl_keyfile=ssl_keyfile or None,
         ),
+        log=LogConfig(
+            level=log_level,
+            dir=log_dir.strip(),
+            filename=log_filename.strip(),
+            max_bytes=log_max_bytes,
+            backup_count=log_backup_count,
+            console=log_console,
+            access_log=log_access,
+        ),
         devices=devices,
     )
 
@@ -260,6 +313,10 @@ def save_config(config: WebUIConfig, path: Path | str = DEFAULT_CONFIG_PATH) -> 
         if serve.get(key) is None:
             serve[key] = None
     payload["serve"] = serve
+    log_cfg = payload.get("log") or {}
+    if "level" in log_cfg and isinstance(log_cfg["level"], str):
+        log_cfg["level"] = log_cfg["level"].upper()
+    payload["log"] = log_cfg
     with path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=2)
         fh.write("\n")
