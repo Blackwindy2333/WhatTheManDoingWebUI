@@ -14,11 +14,18 @@ def main() -> None:
     setup_logging(config.log)
     log = get_logger("startup")
     log.info(
-        "starting webui host=%s port=%s mode=%s",
+        "starting webui host=%s port=%s mode=%s trust_proxy=%s",
         config.serve.host,
         config.serve.port,
         config.serve.mode,
+        config.trust_proxy,
     )
+    if config.serve.mode == "http":
+        log.info(
+            "listening plain HTTP — if you use an HTTPS tunnel/domain, "
+            "terminate TLS on the tunnel/reverse-proxy and forward HTTP here; "
+            "do not point HTTPS clients at this port"
+        )
     app = create_app(config, start_aggregator=True)
     ssl_kwargs = {}
     if config.serve.mode == "https" and config.serve.ssl_certfile and config.serve.ssl_keyfile:
@@ -26,11 +33,14 @@ def main() -> None:
             "ssl_certfile": config.serve.ssl_certfile,
             "ssl_keyfile": config.serve.ssl_keyfile,
         }
+        log.info("TLS enabled cert=%s", config.serve.ssl_certfile)
     try:
         uvicorn.run(
             app,
             host=config.serve.host,
             port=config.serve.port,
+            proxy_headers=config.trust_proxy,
+            forwarded_allow_ips=config.forwarded_allow_ips,
             **ssl_kwargs,
         )
     finally:
