@@ -65,6 +65,7 @@ class WebUIConfig:
     show_history: bool = True
     devices_per_page: int = 12
     trust_proxy: bool = False
+    forwarded_allow_ips: str = "*"
     default_device_scheme: str = "http"
     serve: ServeConfig = field(default_factory=ServeConfig)
     log: LogConfig = field(default_factory=LogConfig)
@@ -195,6 +196,10 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
     if not isinstance(trust_proxy, bool):
         raise ConfigError("trust_proxy must be a bool")
 
+    forwarded_allow_ips = data.get("forwarded_allow_ips", "*")
+    if not isinstance(forwarded_allow_ips, str) or not forwarded_allow_ips.strip():
+        raise ConfigError("forwarded_allow_ips must be a non-empty string")
+
     default_device_scheme = data.get("default_device_scheme", "http")
     if default_device_scheme not in ("http", "https"):
         raise ConfigError("default_device_scheme must be http or https")
@@ -275,6 +280,7 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
         show_history=show_history,
         devices_per_page=devices_per_page,
         trust_proxy=trust_proxy,
+        forwarded_allow_ips=forwarded_allow_ips.strip(),
         default_device_scheme=default_device_scheme,
         serve=ServeConfig(
             mode=serve_mode,
