@@ -142,6 +142,37 @@ def test_device_create_duplicate_rejected(client: TestClient, admin_headers):
     assert resp.status_code == 400
 
 
+def test_device_create_strips_id_and_rejects_empty_url(client: TestClient, admin_headers):
+    created = client.post(
+        "/api/admin/devices",
+        headers=admin_headers,
+        json={"id": "  lap-9  ", "name": "L", "api_base_url": "h:1/api/v1"},
+    )
+    assert created.status_code == 200
+    assert created.json()["data"]["id"] == "lap-9"
+
+    bad = client.post(
+        "/api/admin/devices",
+        headers=admin_headers,
+        json={"id": "bad-url", "name": "B", "api_base_url": ""},
+    )
+    assert bad.status_code == 400
+
+
+def test_device_not_found_returns_envelope(client: TestClient, admin_headers):
+    resp = client.get("/api/public/devices/no-such/history")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["code"] == 40400
+    assert "message" in body
+
+
+def test_admin_test_missing_device_envelope(client: TestClient, admin_headers):
+    resp = client.post("/api/admin/devices/nope/test", headers=admin_headers)
+    assert resp.status_code == 404
+    assert resp.json()["code"] == 40400
+
+
 def test_update_settings(client: TestClient, admin_headers):
     resp = client.patch(
         "/api/admin/config",

@@ -72,6 +72,15 @@ def test_parse_iso():
     assert parse_iso("not-a-date") is None
 
 
+def test_unparseable_ban_expiry_is_not_permanent(tmp_path):
+    store = StateStore(tmp_path / "state.json")
+    bans = BanService(store)
+    store.ban_ip("8.8.8.8", utc_now_iso(), "not-a-timestamp")
+    banned, _ = bans.is_banned("8.8.8.8")
+    assert banned is False
+    assert store.get_ban("8.8.8.8") is None
+
+
 def test_session_revoke(authenticator, webui_config):
     result = authenticator.login("10.0.0.4", webui_config.admin_token)
     token = result["session_token"]

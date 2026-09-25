@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from server.aggregate import DeviceAggregator, build_snapshot, normalize_api_url
+from server.aggregate import DeviceAggregator, DeviceSnapshot, build_snapshot, normalize_api_url
 from server.config import ConfigError, DeviceConfig, WebUIConfig
 from server.devices import apply_scheme, delete_device, device_to_dict, upsert_device
 
@@ -48,6 +48,30 @@ def test_build_snapshot_success():
     assert snap.online is True
     assert snap.app["display_name"] == "VS Code"
     assert snap.to_public_dict()["healthy"] is True
+
+
+def test_build_snapshot_stopped_is_not_online():
+    device = DeviceConfig(id="a", name="A", api_base_url="http://x/api/v1")
+    snap = build_snapshot(
+        device,
+        {
+            "ok": True,
+            "http_status": 200,
+            "latency_ms": 8,
+            "payload": {"status": "stopped", "app": None},
+        },
+    )
+    assert snap.online is False
+    pub = snap.to_public_dict()
+    assert pub["online"] is False
+    assert pub["healthy"] is False
+
+
+def test_disabled_device_public_not_online():
+    snap = DeviceSnapshot(id="d", name="D", enabled=False, online=True, status="active")
+    pub = snap.to_public_dict()
+    assert pub["online"] is False
+    assert pub["healthy"] is False
 
 
 def test_upsert_and_delete_device(webui_config: WebUIConfig):
