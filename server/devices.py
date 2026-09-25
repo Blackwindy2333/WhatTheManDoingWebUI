@@ -8,6 +8,9 @@ import httpx
 
 from server.config import ConfigError, DeviceConfig, WebUIConfig, validate_config_dict
 from server.aggregate import normalize_api_url
+from server.log_setup import get_logger
+
+logger = get_logger("devices")
 
 
 def device_to_dict(device: DeviceConfig) -> dict[str, Any]:
@@ -157,12 +160,14 @@ async def test_device_connection(device: DeviceConfig, timeout: float = 5.0) -> 
             try:
                 resp = await client.get(path, headers=headers)
             except httpx.HTTPError as exc:
+                err = str(exc) or exc.__class__.__name__
+                logger.warning("device test connection error id=%s path=%s error=%s", device.id, path, err)
                 return {
                     "ok": False,
                     "path": path,
                     "http_status": None,
                     "latency_ms": int((time.perf_counter() - t0) * 1000),
-                    "error": str(exc) or exc.__class__.__name__,
+                    "error": err,
                 }
             latency_ms = int((time.perf_counter() - t0) * 1000)
             if resp.status_code == 200:
@@ -173,6 +178,12 @@ async def test_device_connection(device: DeviceConfig, timeout: float = 5.0) -> 
                         message = str(body.get("message") or "ok")
                 except ValueError:
                     message = "ok (non-json)"
+                logger.info(
+                    "device test ok id=%s path=%s latency_ms=%s",
+                    device.id,
+                    path,
+                    latency_ms,
+                )
                 return {
                     "ok": True,
                     "path": path,
@@ -182,6 +193,12 @@ async def test_device_connection(device: DeviceConfig, timeout: float = 5.0) -> 
                     "message": message,
                 }
             if resp.status_code in (401, 403):
+                logger.warning(
+                    "device test unauthorized id=%s path=%s status=%s",
+                    device.id,
+                    path,
+                    resp.status_code,
+                )
                 return {
                     "ok": False,
                     "path": path,
