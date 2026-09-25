@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>在干什么</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="toolbar" role="banner">
+        <div class="toolbar-inner">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <div class="brand-text">
+              <h1 class="brand-title" id="page-title">在干什么</h1>
+              <p class="brand-sub" id="page-subtitle">What The Man Doing</p>
+            </div>
+          </div>
+          <div class="toolbar-actions">
+            <div class="status-pill" id="conn-pill" data-state="connecting">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="conn-label">连接中…</span>
+            </div>
+            <button type="button" class="btn btn-ghost" id="admin-open">管理</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="content" id="content">
+        <section class="hero-bar" aria-live="polite">
+          <div>
+            <p class="hero-kicker">监控总览</p>
+            <p class="hero-meta" id="hero-meta">正在加载设备…</p>
+          </div>
+          <div class="hero-stats" id="hero-stats">
+            <div class="stat">
+              <span class="stat-value" id="stat-online">0</span>
+              <span class="stat-label">在线</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="stat-total">0</span>
+              <span class="stat-label">设备</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" aria-labelledby="devices-heading">
+          <div class="section-head">
+            <h2 id="devices-heading">设备</h2>
+            <span class="muted" id="device-count"></span>
+          </div>
+          <div class="device-grid" id="device-grid" aria-live="polite"></div>
+          <div class="empty-state" id="devices-empty" hidden>
+            <div class="empty-card">
+              <h3>暂无设备</h3>
+              <p>在管理后台添加监控设备后，这里会显示各台机器「在干什么」。</p>
+            </div>
+          </div>
+          <div class="empty-state" id="devices-error" hidden>
+            <div class="empty-card">
+              <h3>无法加载设备</h3>
+              <p id="devices-error-text">请稍后重试，或检查服务是否正常。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="history-section" aria-labelledby="history-heading" hidden>
+          <div class="section-head">
+            <h2 id="history-heading">最近切换</h2>
+            <span class="muted" id="history-device-label">选择一台设备查看</span>
+          </div>
+          <ol class="timeline" id="timeline"></ol>
+          <p class="empty" id="history-empty">选择一台设备后显示时间线。</p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <p>只读展示 · 数据由服务端代理聚合 · 不会向访客暴露设备 Token</p>
+      </footer>
+    </div>
+
+    <!-- Admin sheet -->
+    <div class="modal-root" id="admin-modal" hidden>
+      <div class="modal-scrim" id="admin-scrim"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+        <div class="sheet-grabber" aria-hidden="true"></div>
+        <header class="sheet-header">
+          <div>
+            <h2 id="admin-title">管理后台</h2>
+            <p class="muted" id="admin-subtitle">使用配置文件中的管理员 Token 登录</p>
+          </div>
+          <button type="button" class="btn btn-ghost" id="admin-close">关闭</button>
+        </header>
+
+        <div class="sheet-body">
+          <!-- Login -->
+          <section id="login-panel" class="panel">
+            <label class="field">
+              <span>管理员 Token</span>
+              <input type="password" id="login-token" autocomplete="current-password" placeholder="admin_token" />
+            </label>
+            <p class="field-error" id="login-error" hidden></p>
+            <div class="row-actions">
+              <button type="button" class="btn btn-primary" id="login-submit">登录</button>
+            </div>
+          </section>
+
+          <!-- Dashboard -->
+          <section id="dash-panel" class="panel" hidden>
+            <nav class="tabs" id="admin-tabs" role="tablist">
+              <button type="button" class="tab is-active" data-tab="settings" role="tab">WebUI 设置</button>
+              <button type="button" class="tab" data-tab="devices" role="tab">设备</button>
+              <button type="button" class="tab" data-tab="stats" role="tab">访问统计</button>
+              <button type="button" class="tab" data-tab="security" role="tab">安全</button>
+              <button type="button" class="tab" data-tab="audit" role="tab">审计</button>
+            </nav>
+
+            <div class="tab-panels">
+              <div class="tab-panel" data-panel="settings">
+                <label class="field">
+                  <span>页面标题</span>
+                  <input type="text" id="set-page-title" />
+                </label>
+                <label class="field">
+                  <span>副标题</span>
+                  <input type="text" id="set-page-subtitle" />
+                </label>
+                <label class="field">
+                  <span>刷新间隔（秒）</span>
+                  <input type="number" id="set-refresh" min="1" max="60" />
+                </label>
+                <label class="field">
+                  <span>每页设备数</span>
+                  <input type="number" id="set-per-page" min="1" max="100" />
+                </label>
+                <label class="switch-field">
+                  <input type="checkbox" id="set-show-history" />
+                  <span>显示历史时间线</span>
+                </label>
+                <label class="field">
+                  <span>设备默认协议</span>
+                  <select id="set-default-scheme">
+                    <option value="http">http</option>
+                    <option value="https">https</option>
+                  </select>
+                </label>
+                <label class="switch-field">
+                  <input type="checkbox" id="set-trust-proxy" />
+                  <span>信任反向代理 X-Forwarded-For</span>
+                </label>
+
+                <fieldset class="fieldset">
+                  <legend>WebUI 连接方式</legend>
+                  <label class="field">
+                    <span>对外协议</span>
+                    <select id="set-serve-mode">
+                      <option value="http">http</option>
+                      <option value="https">https</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>监听地址</span>
+                    <input type="text" id="set-serve-host" />
+                  </label>
+                  <label class="field">
+                    <span>端口</span>
+                    <input type="number" id="set-serve-port" min="1" max="65535" />
+                  </label>
+                  <label class="field">
+                    <span>SSL 证书路径（https）</span>
+                    <input type="text" id="set-ssl-cert" placeholder="certs/fullchain.pem" />
+                  </label>
+                  <label class="field">
+                    <span>SSL 私钥路径（https）</span>
+                    <input type="text" id="set-ssl-key" placeholder="certs/privkey.pem" />
+                  </label>
+                  <p class="hint">修改监听协议/端口后需重启服务进程才会生效。</p>
+                </fieldset>
+
+                <label class="field">
+                  <span>更新管理员 Token（留空则不修改）</span>
+                  <input type="password" id="set-admin-token" autocomplete="new-password" />
+                </label>
+                <div class="row-actions">
+                  <button type="button" class="btn btn-primary" id="save-settings">保存设置</button>
+                </div>
+              </div>
+
+              <div class="tab-panel" data-panel="devices" hidden>
+                <div class="row-actions spread">
+                  <p class="muted">增删改监控设备与 API 地址</p>
+                  <div>
+                    <button type="button" class="btn btn-ghost" id="export-devices">导出 JSON</button>
+                    <button type="button" class="btn btn-primary" id="device-add">添加设备</button>
+                  </div>
+                </div>
+                <div class="device-admin-list" id="device-admin-list"></div>
+
+                <form class="device-form card" id="device-form" hidden>
+                  <h3 id="device-form-title">添加设备</h3>
+                  <input type="hidden" id="dev-original-id" />
+                  <label class="field">
+                    <span>设备 ID</span>
+                    <input type="text" id="dev-id" placeholder="my-pc" required />
+                  </label>
+                  <label class="field">
+                    <span>显示名称</span>
+                    <input type="text" id="dev-name" placeholder="我的电脑" required />
+                  </label>
+                  <label class="field">
+                    <span>API 请求地址</span>
+                    <input type="text" id="dev-url" placeholder="http://127.0.0.1:8765/api/v1" required />
+                  </label>
+                  <label class="field">
+                    <span>Viewer Token（可选）</span>
+                    <input type="password" id="dev-token" autocomplete="off" />
+                  </label>
+                  <label class="switch-field">
+                    <input type="checkbox" id="dev-enabled" checked />
+                    <span>启用监控</span>
+                  </label>
+                  <div class="row-actions">
+                    <button type="submit" class="btn btn-primary" id="device-save">保存设备</button>
+                    <button type="button" class="btn btn-ghost" id="device-cancel">取消</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="tab-panel" data-panel="stats" hidden>
+                <div class="stat-cards">
+                  <div class="card stat-card">
+                    <p class="muted">总访问量</p>
+                    <p class="stat-value large" id="stat-total-visits">0</p>
+                  </div>
+                </div>
+                <h3>按日</h3>
+                <div class="day-list" id="day-list"></div>
+              </div>
+
+              <div class="tab-panel" data-panel="security" hidden>
+                <h3>当前封禁</h3>
+                <div class="ban-list" id="ban-list"></div>
+                <p class="hint">连续登录失败超过阈值的 IP 会被封禁 24 小时（可在 WebUI 设置中调整阈值/时长配置文件）。</p>
+                <div class="row-actions">
+                  <button type="button" class="btn btn-ghost" id="refresh-bans">刷新</button>
+                  <button type="button" class="btn btn-ghost" id="admin-logout">退出登录</button>
+                </div>
+              </div>
+
+              <div class="tab-panel" data-panel="audit" hidden>
+                <div class="audit-list" id="audit-list"></div>
+                <div class="row-actions">
+                  <button type="button" class="btn btn-ghost" id="refresh-audit">刷新审计</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
