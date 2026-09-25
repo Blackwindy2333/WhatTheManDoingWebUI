@@ -33,11 +33,17 @@ class DeviceSnapshot:
     updated_at: float = field(default_factory=time.time)
 
     def to_public_dict(self) -> dict[str, Any]:
+        online = self.online and self.enabled
+        healthy = (
+            online
+            and self.error is None
+            and self.status not in ("stopped", "offline")
+        )
         return {
             "id": self.id,
             "name": self.name,
             "enabled": self.enabled,
-            "online": self.online,
+            "online": online,
             "status": self.status,
             "app": self.app,
             "timestamp": self.timestamp,
@@ -45,7 +51,7 @@ class DeviceSnapshot:
             "http_status": self.http_status,
             "error": self.error,
             "updated_at": self.updated_at,
-            "healthy": self.online and self.error is None,
+            "healthy": healthy,
         }
 
 
@@ -162,8 +168,14 @@ def build_snapshot(device: DeviceConfig, result: FetchResult) -> DeviceSnapshot:
         snap.error = result.get("error") or "fetch failed"
         return snap
     payload = result.get("payload") or {}
-    snap.online = bool(payload.get("online", True))
-    snap.status = str(payload.get("status") or ("active" if snap.online else "offline"))
+    if not isinstance(payload, dict):
+        payload = {}
+    snap.status = str(payload.get("status") or "active")
+    # Explicit online flag wins; stopped is never online
+    if payload.get("online") is False or snap.status == "stopped":
+        snap.online = False
+    else:
+        snap.online = bool(payload.get("online", True))
     app = payload.get("app")
     if isinstance(app, dict):
         snap.app = {
@@ -174,8 +186,6 @@ def build_snapshot(device: DeviceConfig, result: FetchResult) -> DeviceSnapshot:
     else:
         snap.app = None
     snap.timestamp = payload.get("timestamp")
-    if payload.get("online") is False:
-        snap.online = False
     snap.error = None
     return snap
 
@@ -244,6 +254,19 @@ class DeviceAggregator:
                         snap.error,
                     )
                 else:
+                    if not isinstance(result, dict):
+                        snap = DeviceSnapshot(id=device.id, name=device.name, enabled=device.enabled)
+                        snap.online = False
+                        snap.status = "offline"
+                        snap.error = f"invalid fetcher result: {type(result).__name__}"
+                        snap.updated_at = time.time()
+                        self._snapshots[device.id] = snap
+                        logger.warning(
+                            "device fetch invalid result id=%s type=%s",
+                            device.id,
+                            type(result).__name__,
+                        )
+                        continue
                     snap = build_snapshot(device, result)
                     self._snapshots[device.id] = snap
                     if not result.get("ok"):
