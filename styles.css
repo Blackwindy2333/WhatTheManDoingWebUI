@@ -743,6 +743,22 @@ select {
   font-size: 0.8125rem;
 }
 
+.log-viewer {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.75rem 0.9rem;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--ink-muted);
+}
+
 /* Toast */
 .toast {
   position: fixed;

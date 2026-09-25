@@ -407,6 +407,14 @@ function fillSettingsForm(cfg) {
   document.getElementById("set-serve-port").value = cfg.serve?.port ?? 8080;
   document.getElementById("set-ssl-cert").value = cfg.serve?.ssl_certfile || "";
   document.getElementById("set-ssl-key").value = cfg.serve?.ssl_keyfile || "";
+  const log = cfg.log || {};
+  document.getElementById("set-log-level").value = log.level || "INFO";
+  document.getElementById("set-log-dir").value = log.dir || "logs";
+  document.getElementById("set-log-filename").value = log.filename || "webui.log";
+  document.getElementById("set-log-max-bytes").value = log.max_bytes ?? 5242880;
+  document.getElementById("set-log-backup").value = log.backup_count ?? 5;
+  document.getElementById("set-log-console").checked = log.console !== false;
+  document.getElementById("set-log-access").checked = log.access_log !== false;
   document.getElementById("set-admin-token").value = "";
 }
 
@@ -430,6 +438,15 @@ async function saveSettings() {
       port: Number(document.getElementById("set-serve-port").value),
       ssl_certfile: document.getElementById("set-ssl-cert").value.trim() || null,
       ssl_keyfile: document.getElementById("set-ssl-key").value.trim() || null,
+    },
+    log: {
+      level: document.getElementById("set-log-level").value,
+      dir: document.getElementById("set-log-dir").value.trim() || "logs",
+      filename: document.getElementById("set-log-filename").value.trim() || "webui.log",
+      max_bytes: Number(document.getElementById("set-log-max-bytes").value) || 5242880,
+      backup_count: Number(document.getElementById("set-log-backup").value),
+      console: document.getElementById("set-log-console").checked,
+      access_log: document.getElementById("set-log-access").checked,
     },
   };
   const newToken = document.getElementById("set-admin-token").value;
@@ -678,7 +695,23 @@ function bindEvents() {
   document.getElementById("export-devices").addEventListener("click", exportDevices);
   document.getElementById("refresh-bans").addEventListener("click", loadBans);
   document.getElementById("refresh-audit").addEventListener("click", loadAudit);
+  document.getElementById("refresh-logs").addEventListener("click", loadRecentLogs);
   bindTabs();
+}
+
+async function loadRecentLogs() {
+  const viewer = document.getElementById("log-viewer");
+  viewer.hidden = false;
+  viewer.textContent = "加载中…";
+  const { body } = await api("/api/admin/logs?lines=80", { admin: true });
+  if (body?.code !== 0) {
+    viewer.textContent = body?.message || "无法加载日志";
+    return;
+  }
+  const lines = body.data?.lines || [];
+  viewer.textContent = lines.length
+    ? lines.join("\n")
+    : "暂无日志（或尚未写入）";
 }
 
 async function boot() {
