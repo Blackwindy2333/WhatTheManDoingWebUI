@@ -74,6 +74,28 @@ def test_disabled_device_public_not_online():
     assert pub["healthy"] is False
 
 
+def test_empty_payload_not_online():
+    device = DeviceConfig(id="a", name="A", api_base_url="http://x/api/v1")
+    snap = build_snapshot(
+        device,
+        {"ok": True, "http_status": 200, "latency_ms": 3, "payload": {}},
+    )
+    assert snap.online is False
+    assert snap.error == "empty device payload"
+
+
+def test_multidevice_list_no_match_not_fabricated():
+    from server.aggregate import _extract_device_payload
+
+    data = {
+        "devices": [
+            {"device_id": "other", "status": "active", "app": {"process_name": "x"}},
+            {"device_id": "another", "status": "active", "app": {"process_name": "y"}},
+        ]
+    }
+    assert _extract_device_payload(data, "a") == {}
+
+
 def test_upsert_and_delete_device(webui_config: WebUIConfig):
     cfg = upsert_device(
         webui_config,

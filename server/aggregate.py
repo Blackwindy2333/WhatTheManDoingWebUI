@@ -154,6 +154,8 @@ def _extract_device_payload(data: Any, device_id: str) -> dict[str, Any]:
                 return item
         if len(devices) == 1 and isinstance(devices[0], dict):
             return devices[0]
+        # Multi-device list without a match — do not fabricate a device
+        return {}
     return data
 
 
@@ -170,6 +172,11 @@ def build_snapshot(device: DeviceConfig, result: FetchResult) -> DeviceSnapshot:
     payload = result.get("payload") or {}
     if not isinstance(payload, dict):
         payload = {}
+    if not payload:
+        snap.online = False
+        snap.status = "unknown"
+        snap.error = "empty device payload"
+        return snap
     snap.status = str(payload.get("status") or "active")
     # Explicit online flag wins; stopped is never online
     if payload.get("online") is False or snap.status == "stopped":
