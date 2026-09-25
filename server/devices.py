@@ -49,6 +49,7 @@ def upsert_device(config: WebUIConfig, raw: dict[str, Any], *, replace_id: str |
         "show_history": config.show_history,
         "devices_per_page": config.devices_per_page,
         "trust_proxy": config.trust_proxy,
+        "forwarded_allow_ips": config.forwarded_allow_ips,
         "default_device_scheme": config.default_device_scheme,
         "serve": {
             "mode": config.serve.mode,
@@ -123,6 +124,7 @@ def upsert_config_devices(config: WebUIConfig, devices: list[dict[str, Any]]) ->
         "show_history": config.show_history,
         "devices_per_page": config.devices_per_page,
         "trust_proxy": config.trust_proxy,
+        "forwarded_allow_ips": config.forwarded_allow_ips,
         "default_device_scheme": config.default_device_scheme,
         "serve": {
             "mode": config.serve.mode,

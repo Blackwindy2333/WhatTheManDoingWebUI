@@ -221,6 +221,34 @@ def create_app(
     def public_config() -> JSONResponse:
         return ok(config_to_public_dict(app.state.config))
 
+    @app.get("/api/public/probe")
+    def public_probe(request: Request) -> JSONResponse:
+        """Diagnose reverse-proxy / tunnel headers and scheme detection."""
+        headers = {k.lower(): v for k, v in request.headers.items()}
+        return ok(
+            {
+                "client_host": request.client.host if request.client else None,
+                "resolved_ip": _client_ip(request),
+                "method": request.method,
+                "path": request.url.path,
+                "scheme": request.url.scheme,
+                "trust_proxy": app.state.config.trust_proxy,
+                "forwarded": {
+                    "x_forwarded_for": headers.get("x-forwarded-for"),
+                    "x_forwarded_proto": headers.get("x-forwarded-proto"),
+                    "x_real_ip": headers.get("x-real-ip"),
+                    "x_forwarded_host": headers.get("x-forwarded-host"),
+                },
+                "host": headers.get("host"),
+                "user_agent": headers.get("user-agent"),
+                "note": (
+                    "If scheme is http but you opened https://, TLS is terminated upstream "
+                    "(good). If this request never arrives when users see Invalid HTTP, "
+                    "HTTPS/TLS is being sent directly to this HTTP port."
+                ),
+            }
+        )
+
     @app.get("/api/public/devices")
     def public_devices() -> JSONResponse:
         return ok({"devices": agg.get_public_devices()})
@@ -548,6 +576,9 @@ def _merge_settings(config: WebUIConfig, body: dict[str, Any]) -> WebUIConfig:
         "show_history": body.get("show_history", config.show_history),
         "devices_per_page": body.get("devices_per_page", config.devices_per_page),
         "trust_proxy": body.get("trust_proxy", config.trust_proxy),
+        "forwarded_allow_ips": body.get(
+            "forwarded_allow_ips", config.forwarded_allow_ips
+        ),
         "default_device_scheme": body.get(
             "default_device_scheme", config.default_device_scheme
         ),
