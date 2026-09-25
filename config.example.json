@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "admin_token": "change-me",
+  "session_ttl_seconds": 3600,
+  "login_max_failures": 5,
+  "ban_duration_hours": 24,
+  "login_rate_limit_per_minute": 10,
+  "refresh_interval_seconds": 5,
+  "page_title": "在干什么",
+  "page_subtitle": "What The Man Doing",
+  "show_history": true,
+  "devices_per_page": 12,
+  "trust_proxy": false,
+  "default_device_scheme": "http",
+  "serve": {
+    "mode": "http",
+    "host": "127.0.0.1",
+    "port": 8080,
+    "ssl_certfile": null,
+    "ssl_keyfile": null
+  },
+  "devices": [
+    {
+      "id": "my-pc",
+      "name": "My PC",
+      "api_base_url": "http://127.0.0.1:8765/api/v1",
+      "viewer_token": "",
+      "enabled": true
+    }
+  ]
+}
