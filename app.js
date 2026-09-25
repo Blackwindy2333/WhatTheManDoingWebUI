@@ -402,6 +402,7 @@ function fillSettingsForm(cfg) {
   document.getElementById("set-show-history").checked = !!cfg.show_history;
   document.getElementById("set-default-scheme").value = cfg.default_device_scheme || "http";
   document.getElementById("set-trust-proxy").checked = !!cfg.trust_proxy;
+  document.getElementById("set-forwarded-allow-ips").value = cfg.forwarded_allow_ips || "*";
   document.getElementById("set-serve-mode").value = cfg.serve?.mode || "http";
   document.getElementById("set-serve-host").value = cfg.serve?.host || "127.0.0.1";
   document.getElementById("set-serve-port").value = cfg.serve?.port ?? 8080;
@@ -432,6 +433,8 @@ async function saveSettings() {
     show_history: document.getElementById("set-show-history").checked,
     default_device_scheme: document.getElementById("set-default-scheme").value,
     trust_proxy: document.getElementById("set-trust-proxy").checked,
+    forwarded_allow_ips:
+      document.getElementById("set-forwarded-allow-ips").value.trim() || "*",
     serve: {
       mode: document.getElementById("set-serve-mode").value,
       host: document.getElementById("set-serve-host").value.trim(),
