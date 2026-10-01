@@ -95,6 +95,21 @@ def test_device_history_not_found_returns_envelope(client: TestClient):
     assert "message" in body
 
 
+def test_history_auth_error_maps_to_401(client: TestClient, monkeypatch):
+    import server.main as main_mod
+    from server.devices import UpstreamAuthError
+
+    async def fake_fetch(device, limit=30):
+        raise UpstreamAuthError("unauthorized (api_token?)")
+
+    monkeypatch.setattr(main_mod, "fetch_device_history", fake_fetch)
+    resp = client.get("/api/public/devices/pc-1/history")
+    assert resp.status_code == 401
+    body = resp.json()
+    assert body["code"] == 40100
+    assert "api_token" in body["message"]
+
+
 def test_stream_route_registered(webui_config, tmp_paths, aggregator):
     from fastapi.routing import APIRoute
 
