@@ -10,7 +10,6 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = ROOT / "config.json"
-DEFAULT_STATE_PATH = ROOT / "state.json"
 DEFAULT_LOG_DIR = "logs"
 
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -47,18 +46,13 @@ class DeviceConfig:
     id: str = "my-pc"
     name: str = "My PC"
     api_base_url: str = "http://127.0.0.1:8765/api/v1"
-    viewer_token: str = ""
+    api_token: str = ""
     enabled: bool = True
 
 
 @dataclass
 class WebUIConfig:
     version: int = 1
-    admin_token: str = "change-me"
-    session_ttl_seconds: int = 3600
-    login_max_failures: int = 5
-    ban_duration_hours: int = 24
-    login_rate_limit_per_minute: int = 10
     refresh_interval_seconds: int = 5
     page_title: str = "在干什么"
     page_subtitle: str = "What The Man Doing"
@@ -66,7 +60,6 @@ class WebUIConfig:
     devices_per_page: int = 12
     trust_proxy: bool = False
     forwarded_allow_ips: str = "*"
-    default_device_scheme: str = "http"
     serve: ServeConfig = field(default_factory=ServeConfig)
     log: LogConfig = field(default_factory=LogConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
@@ -79,7 +72,7 @@ def default_config() -> WebUIConfig:
                 id="my-pc",
                 name="My PC",
                 api_base_url="http://127.0.0.1:8765/api/v1",
-                viewer_token="",
+                api_token="",
                 enabled=True,
             )
         ]
@@ -115,9 +108,11 @@ def _validate_device(raw: Any, index: int) -> DeviceConfig:
         raise ConfigError(f"devices[{index}].api_base_url must be a non-empty string")
     if not api_base_url.startswith(("http://", "https://")):
         raise ConfigError(f"devices[{index}].api_base_url must start with http:// or https://")
-    viewer_token = raw.get("viewer_token", "")
-    if not isinstance(viewer_token, str):
-        raise ConfigError(f"devices[{index}].viewer_token must be a string")
+    if "viewer_token" in raw:
+        raise ConfigError(f"devices[{index}].viewer_token is no longer supported; use api_token")
+    api_token = raw.get("api_token", "")
+    if not isinstance(api_token, str):
+        raise ConfigError(f"devices[{index}].api_token must be a string")
     enabled = raw.get("enabled", True)
     if not isinstance(enabled, bool):
         raise ConfigError(f"devices[{index}].enabled must be a bool")
@@ -125,7 +120,7 @@ def _validate_device(raw: Any, index: int) -> DeviceConfig:
         id=device_id,
         name=name.strip(),
         api_base_url=api_base_url.strip().rstrip("/"),
-        viewer_token=viewer_token,
+        api_token=api_token,
         enabled=enabled,
     )
 
@@ -138,36 +133,18 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         raise ConfigError("version must be an int >= 1")
 
-    admin_token = _require_type(data, "admin_token", str)
-    if not admin_token.strip():
-        raise ConfigError("admin_token must be non-empty")
-
-    session_ttl_seconds = data.get("session_ttl_seconds", 3600)
-    if isinstance(session_ttl_seconds, bool) or not isinstance(session_ttl_seconds, int):
-        raise ConfigError("session_ttl_seconds must be int")
-    if session_ttl_seconds < 60 or session_ttl_seconds > 7 * 24 * 3600:
-        raise ConfigError("session_ttl_seconds must be between 60 and 604800")
-
-    login_max_failures = data.get("login_max_failures", 5)
-    if isinstance(login_max_failures, bool) or not isinstance(login_max_failures, int):
-        raise ConfigError("login_max_failures must be int")
-    if login_max_failures < 1 or login_max_failures > 100:
-        raise ConfigError("login_max_failures must be between 1 and 100")
-
-    ban_duration_hours = data.get("ban_duration_hours", 24)
-    if isinstance(ban_duration_hours, bool) or not isinstance(ban_duration_hours, int):
-        raise ConfigError("ban_duration_hours must be int")
-    if ban_duration_hours < 1 or ban_duration_hours > 24 * 30:
-        raise ConfigError("ban_duration_hours must be between 1 and 720")
-
-    login_rate_limit_per_minute = data.get("login_rate_limit_per_minute", 10)
-    if (
-        isinstance(login_rate_limit_per_minute, bool)
-        or not isinstance(login_rate_limit_per_minute, int)
-    ):
-        raise ConfigError("login_rate_limit_per_minute must be int")
-    if login_rate_limit_per_minute < 1 or login_rate_limit_per_minute > 1000:
-        raise ConfigError("login_rate_limit_per_minute must be between 1 and 1000")
+    removed_keys = (
+        "admin_token",
+        "session_ttl_seconds",
+        "login_max_failures",
+        "ban_duration_hours",
+        "login_rate_limit_per_minute",
+        "default_device_scheme",
+        "viewer_token",
+    )
+    for key in removed_keys:
+        if key in data:
+            raise ConfigError(f"config key {key!r} is no longer supported")
 
     refresh_interval_seconds = data.get("refresh_interval_seconds", 5)
     if isinstance(refresh_interval_seconds, bool) or not isinstance(refresh_interval_seconds, int):
@@ -199,10 +176,6 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
     forwarded_allow_ips = data.get("forwarded_allow_ips", "*")
     if not isinstance(forwarded_allow_ips, str) or not forwarded_allow_ips.strip():
         raise ConfigError("forwarded_allow_ips must be a non-empty string")
-
-    default_device_scheme = data.get("default_device_scheme", "http")
-    if default_device_scheme not in ("http", "https"):
-        raise ConfigError("default_device_scheme must be http or https")
 
     serve_raw = data.get("serve", {})
     if not isinstance(serve_raw, dict):
@@ -269,11 +242,6 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
 
     return WebUIConfig(
         version=version,
-        admin_token=admin_token,
-        session_ttl_seconds=session_ttl_seconds,
-        login_max_failures=login_max_failures,
-        ban_duration_hours=ban_duration_hours,
-        login_rate_limit_per_minute=login_rate_limit_per_minute,
         refresh_interval_seconds=refresh_interval_seconds,
         page_title=page_title.strip(),
         page_subtitle=page_subtitle,
@@ -281,7 +249,6 @@ def validate_config_dict(data: dict[str, Any]) -> WebUIConfig:
         devices_per_page=devices_per_page,
         trust_proxy=trust_proxy,
         forwarded_allow_ips=forwarded_allow_ips.strip(),
-        default_device_scheme=default_device_scheme,
         serve=ServeConfig(
             mode=serve_mode,
             host=serve_host.strip(),
@@ -346,12 +313,3 @@ def config_to_public_dict(config: WebUIConfig) -> dict[str, Any]:
         "refresh_interval_seconds": config.refresh_interval_seconds,
         "show_history": config.show_history,
     }
-
-
-def config_to_admin_dict(config: WebUIConfig) -> dict[str, Any]:
-    """Full config for admin UI, without secrets that should not round-trip casually."""
-    data = asdict(config)
-    # Keep admin_token out of GET responses; updates send a replacement when changing it.
-    data.pop("admin_token", None)
-    data["admin_token_set"] = bool(config.admin_token)
-    return data
