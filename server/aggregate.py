@@ -67,8 +67,8 @@ async def default_fetcher(
     """Fetch current status from a device API. Prefer /devices/{id}, fall back to /devices then /status."""
     base = normalize_api_url(device.api_base_url)
     headers = {"Accept": "application/json"}
-    if device.viewer_token:
-        headers["Authorization"] = f"Bearer {device.viewer_token}"
+    if device.api_token:
+        headers["Authorization"] = f"Bearer {device.api_token}"
 
     owns_client = client is None
     if owns_client:
@@ -92,7 +92,7 @@ async def default_fetcher(
                     "ok": False,
                     "http_status": 401,
                     "latency_ms": latency_ms,
-                    "error": "unauthorized (viewer_token?)",
+                    "error": "unauthorized (api_token?)",
                 }
             if resp.status_code == 404 and url != candidates[-1]:
                 last_error = "not found"
