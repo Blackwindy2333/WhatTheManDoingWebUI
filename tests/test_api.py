@@ -1,11 +1,10 @@
-"""Public and admin HTTP API tests via TestClient (no live process)."""
+"""Public HTTP API tests via TestClient (no live process)."""
 
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
 from server.aggregate import DeviceSnapshot
-from server.config import DeviceConfig
 from tests.conftest import DummyAggregator
 
 
@@ -77,89 +76,18 @@ def test_index_served(client: TestClient):
     assert "text/html" in resp.headers["content-type"]
 
 
-def test_admin_login_wrong_token(client: TestClient):
-    resp = client.post("/api/admin/login", json={"token": "nope"})
-    assert resp.status_code == 401
-    assert resp.json()["code"] == 40100
+def test_admin_routes_absent(client: TestClient):
+    for method, path in (
+        ("GET", "/api/admin/config"),
+        ("GET", "/api/admin/devices"),
+        ("POST", "/api/admin/login"),
+        ("GET", "/api/admin/stats"),
+    ):
+        resp = client.request(method, path)
+        assert resp.status_code == 404, path
 
 
-def test_admin_login_and_me(client: TestClient, webui_config, admin_headers):
-    me = client.get("/api/admin/me", headers=admin_headers)
-    assert me.status_code == 200
-    assert me.json()["data"]["authenticated"] is True
-
-
-def test_admin_requires_session(client: TestClient):
-    resp = client.get("/api/admin/devices")
-    assert resp.status_code == 401
-
-
-def test_device_crud(client: TestClient, admin_headers):
-    created = client.post(
-        "/api/admin/devices",
-        headers=admin_headers,
-        json={
-            "id": "lap-1",
-            "name": "Laptop",
-            "api_base_url": "lap.example:8765/api/v1",
-            "viewer_token": "",
-            "enabled": True,
-        },
-    )
-    assert created.status_code == 200
-    assert created.json()["data"]["api_base_url"] == "http://lap.example:8765/api/v1"
-
-    listed = client.get("/api/admin/devices", headers=admin_headers).json()
-    ids = [d["id"] for d in listed["data"]["devices"]]
-    assert "lap-1" in ids
-
-    updated = client.put(
-        "/api/admin/devices/lap-1",
-        headers=admin_headers,
-        json={
-            "id": "lap-1",
-            "name": "Laptop Renamed",
-            "api_base_url": "https://lap.example/api/v1",
-            "enabled": False,
-        },
-    )
-    assert updated.status_code == 200
-    assert updated.json()["data"]["name"] == "Laptop Renamed"
-    assert updated.json()["data"]["api_base_url"].startswith("https://")
-
-    deleted = client.delete("/api/admin/devices/lap-1", headers=admin_headers)
-    assert deleted.status_code == 200
-    listed2 = client.get("/api/admin/devices", headers=admin_headers).json()
-    assert "lap-1" not in [d["id"] for d in listed2["data"]["devices"]]
-
-
-def test_device_create_duplicate_rejected(client: TestClient, admin_headers):
-    resp = client.post(
-        "/api/admin/devices",
-        headers=admin_headers,
-        json={"id": "pc-1", "name": "dup", "api_base_url": "http://x/api/v1"},
-    )
-    assert resp.status_code == 400
-
-
-def test_device_create_strips_id_and_rejects_empty_url(client: TestClient, admin_headers):
-    created = client.post(
-        "/api/admin/devices",
-        headers=admin_headers,
-        json={"id": "  lap-9  ", "name": "L", "api_base_url": "h:1/api/v1"},
-    )
-    assert created.status_code == 200
-    assert created.json()["data"]["id"] == "lap-9"
-
-    bad = client.post(
-        "/api/admin/devices",
-        headers=admin_headers,
-        json={"id": "bad-url", "name": "B", "api_base_url": ""},
-    )
-    assert bad.status_code == 400
-
-
-def test_device_not_found_returns_envelope(client: TestClient, admin_headers):
+def test_device_history_not_found_returns_envelope(client: TestClient):
     resp = client.get("/api/public/devices/no-such/history")
     assert resp.status_code == 404
     body = resp.json()
@@ -167,92 +95,17 @@ def test_device_not_found_returns_envelope(client: TestClient, admin_headers):
     assert "message" in body
 
 
-def test_admin_test_missing_device_envelope(client: TestClient, admin_headers):
-    resp = client.post("/api/admin/devices/nope/test", headers=admin_headers)
-    assert resp.status_code == 404
-    assert resp.json()["code"] == 40400
+def test_stream_route_registered(webui_config, tmp_paths, aggregator):
+    from fastapi.routing import APIRoute
 
+    from server.main import create_app
 
-def test_update_settings(client: TestClient, admin_headers):
-    resp = client.patch(
-        "/api/admin/config",
-        headers=admin_headers,
-        json={"page_title": "新标题", "refresh_interval_seconds": 8},
+    app = create_app(
+        webui_config,
+        config_path=tmp_paths["config"],
+        aggregator=aggregator,
+        start_aggregator=False,
     )
-    assert resp.status_code == 200
-    data = resp.json()["data"]
-    assert data["page_title"] == "新标题"
-    assert data["refresh_interval_seconds"] == 8
-    public = client.get("/api/public/config").json()["data"]
-    assert public["page_title"] == "新标题"
-    assert public["refresh_interval_seconds"] == 8
-
-
-def test_update_serve_connection_mode(client: TestClient, admin_headers):
-    resp = client.patch(
-        "/api/admin/config",
-        headers=admin_headers,
-        json={
-            "serve": {
-                "mode": "https",
-                "host": "0.0.0.0",
-                "port": 8443,
-                "ssl_certfile": "certs/c.pem",
-                "ssl_keyfile": "certs/k.pem",
-            },
-            "default_device_scheme": "https",
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()["data"]
-    assert data["serve"]["mode"] == "https"
-    assert data["serve"]["port"] == 8443
-    assert data["default_device_scheme"] == "https"
-
-
-def test_stats_visits(client: TestClient, admin_headers):
-    client.get("/api/public/devices")
-    client.get("/api/public/devices")
-    resp = client.get("/api/admin/stats", headers=admin_headers)
-    data = resp.json()["data"]
-    assert data["total_visits"] >= 2
-    assert data["visits_by_date"]
-
-
-def test_export_devices(client: TestClient, admin_headers):
-    resp = client.get("/api/admin/devices/export", headers=admin_headers)
-    assert resp.status_code == 200
-    data = resp.json()["data"]
-    assert "devices" in data
-    assert any(d["id"] == "pc-1" for d in data["devices"])
-
-
-def test_audit_after_admin_actions(client: TestClient, admin_headers):
-    client.patch("/api/admin/config", headers=admin_headers, json={"page_subtitle": "x"})
-    resp = client.get("/api/admin/audit", headers=admin_headers)
-    actions = [e["action"] for e in resp.json()["data"]["entries"]]
-    assert "update_config" in actions
-
-
-def test_unban_endpoint(client: TestClient, admin_headers, state_store):
-    state_store.ban_ip("5.5.5.5", "2026-01-01T00:00:00Z", "2099-01-01T00:00:00Z")
-    listed = client.get("/api/admin/bans", headers=admin_headers).json()["data"]["bans"]
-    assert any(b["ip"] == "5.5.5.5" for b in listed)
-    unban = client.delete("/api/admin/bans/5.5.5.5", headers=admin_headers)
-    assert unban.status_code == 200
-    assert unban.json()["data"]["unbanned"] is True
-
-
-def test_banned_ip_rejected(client: TestClient, state_store):
-    # TestClient uses "testclient" as host by default
-    state_store.ban_ip("testclient", "2026-01-01T00:00:00Z", "2099-01-01T00:00:00Z")
-    resp = client.get("/api/public/devices")
-    assert resp.status_code == 403
-    assert resp.json()["code"] == 40300
-
-
-def test_logout(client: TestClient, admin_headers):
-    resp = client.post("/api/admin/logout", headers=admin_headers)
-    assert resp.status_code == 200
-    me = client.get("/api/admin/me", headers=admin_headers)
-    assert me.status_code == 401
+    paths = {getattr(r, "path", None) for r in app.routes if isinstance(r, APIRoute)}
+    assert "/api/public/stream" in paths
+    assert not any(p and p.startswith("/api/admin") for p in paths)
