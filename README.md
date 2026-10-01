@@ -27,6 +27,42 @@ python -m server
 
 修改设备列表、Token、监听方式：**直接编辑 `config.json` 后重启** `python -m server`。
 
+### 配置工具（推荐）
+
+仓库根目录提供便捷脚本（底层都是 `config_cli.py`，写入前会走 `server.config` 校验）：
+
+| 平台 | 入口 |
+|------|------|
+| Windows | `config.bat` |
+| macOS / Linux / Git Bash | `config.sh`（需 `chmod +x config.sh`） |
+
+```bat
+config.bat                 :: 交互菜单
+config.bat show            :: 查看完整配置
+config.bat show serve.port --raw
+config.bat set serve.port 9090
+config.bat validate
+config.bat edit            :: 记事本打开并校验
+config.bat device list
+config.bat device add --id lap-1 --name Laptop --url http://192.168.1.10:8765/api/v1 --token <api_token>
+config.bat device set lap-1 --enabled false
+config.bat device remove lap-1
+config.bat backup
+config.bat restore config.json.bak-20260101-120000
+config.bat export --out backup.json
+```
+
+```bash
+./config.sh                # 交互菜单
+./config.sh set page_title "在干什么"
+./config.sh device list
+```
+
+常用子命令：`show` / `path` / `validate` / `init` / `edit` / `keys` / `set` / `device` / `backup` / `restore` / `export`。  
+`set` 支持的键见 `config_cli.py keys`；设备用 `device` 子命令管理。也可用 `python config_cli.py ...` 直接调用。
+
+改完配置后仍需重启 `python -m server` 才会生效。
+
 ### 对接上游（WhatTheManDoing v1）
 
 每台设备一条配置，指向该机器 API 根地址，并填写与上游 `server/config.json` 一致的 `api_token`：
