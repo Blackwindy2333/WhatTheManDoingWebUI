@@ -17,6 +17,9 @@ logger = get_logger("aggregate")
 FetchResult = dict[str, Any]
 Fetcher = Callable[[DeviceConfig], Awaitable[FetchResult]]
 
+AUTH_ERROR = "unauthorized (api_token?)"
+ENVELOPE_UNAUTHORIZED = 40100
+
 
 @dataclass
 class DeviceSnapshot:
@@ -87,12 +90,12 @@ async def default_fetcher(
                 continue
             last_http = resp.status_code
             latency_ms = int((time.perf_counter() - started) * 1000)
-            if resp.status_code == 401:
+            if resp.status_code in (401, 403):
                 return {
                     "ok": False,
-                    "http_status": 401,
+                    "http_status": resp.status_code,
                     "latency_ms": latency_ms,
-                    "error": "unauthorized (api_token?)",
+                    "error": AUTH_ERROR,
                 }
             if resp.status_code == 404 and url != candidates[-1]:
                 last_error = "not found"
@@ -115,6 +118,13 @@ async def default_fetcher(
                 }
             data = body.get("data") if isinstance(body, dict) else None
             code = body.get("code") if isinstance(body, dict) else None
+            if code == ENVELOPE_UNAUTHORIZED:
+                return {
+                    "ok": False,
+                    "http_status": resp.status_code,
+                    "latency_ms": latency_ms,
+                    "error": AUTH_ERROR,
+                }
             if code not in (0, None):
                 return {
                     "ok": False,
