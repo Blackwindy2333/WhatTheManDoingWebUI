@@ -1,6 +1,7 @@
 /**
- * WhatTheManDoing WebUI — public monitor + admin sheet.
+ * WhatTheManDoing WebUI — public read-only monitor.
  * Browser only talks to this WebUI; device tokens never leave the server.
+ * Configuration is file-only (config.json) — there is no admin UI.
  */
 
 const state = {
@@ -12,10 +13,8 @@ const state = {
   },
   devices: [],
   selectedId: null,
-  sessionToken: sessionStorage.getItem("wtmd_admin_session") || "",
   timer: null,
   eventSource: null,
-  adminConfig: null,
 };
 
 const el = {
@@ -35,17 +34,6 @@ const el = {
   historyDeviceLabel: document.getElementById("history-device-label"),
   timeline: document.getElementById("timeline"),
   historyEmpty: document.getElementById("history-empty"),
-  adminModal: document.getElementById("admin-modal"),
-  adminScrim: document.getElementById("admin-scrim"),
-  adminOpen: document.getElementById("admin-open"),
-  adminClose: document.getElementById("admin-close"),
-  adminSubtitle: document.getElementById("admin-subtitle"),
-  loginPanel: document.getElementById("login-panel"),
-  dashPanel: document.getElementById("dash-panel"),
-  loginToken: document.getElementById("login-token"),
-  loginError: document.getElementById("login-error"),
-  loginSubmit: document.getElementById("login-submit"),
-  toast: document.getElementById("toast"),
 };
 
 function setConn(mode, label) {
@@ -53,28 +41,12 @@ function setConn(mode, label) {
   el.connLabel.textContent = label;
 }
 
-function showToast(message) {
-  el.toast.textContent = message;
-  el.toast.hidden = false;
-  clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => {
-    el.toast.hidden = true;
-  }, 2400);
-}
-
-function authHeaders() {
-  return {
-    Accept: "application/json",
-    ...(state.sessionToken ? { Authorization: `Bearer ${state.sessionToken}` } : {}),
-  };
-}
-
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(options.admin ? authHeaders() : { Accept: "application/json" }),
+      Accept: "application/json",
       ...(options.headers || {}),
     },
   });
@@ -228,6 +200,7 @@ function selectDevice(id) {
   } else {
     el.timeline.innerHTML = "";
     el.historyEmpty.hidden = false;
+    el.historyEmpty.textContent = "选择一台设备后显示时间线。";
     el.historyDeviceLabel.textContent = "选择一台设备查看";
   }
 }
@@ -310,421 +283,7 @@ function startStream() {
   };
 }
 
-/* ---------------- Admin ---------------- */
-
-function openAdmin() {
-  el.adminModal.hidden = false;
-  if (state.sessionToken) {
-    refreshAdminSession();
-  } else {
-    showLogin();
-  }
-}
-
-function closeAdmin() {
-  el.adminModal.hidden = true;
-}
-
-function showLogin() {
-  el.loginPanel.hidden = false;
-  el.dashPanel.hidden = true;
-  el.adminSubtitle.textContent = "使用配置文件中的管理员 Token 登录";
-  el.loginError.hidden = true;
-}
-
-function showDash() {
-  el.loginPanel.hidden = true;
-  el.dashPanel.hidden = false;
-  el.adminSubtitle.textContent = "管理设备、WebUI 配置与访问统计";
-  loadAdminAll();
-}
-
-async function refreshAdminSession() {
-  const { res, body } = await api("/api/admin/me", { admin: true });
-  if (res.status === 401 || body?.code === 40100) {
-    state.sessionToken = "";
-    sessionStorage.removeItem("wtmd_admin_session");
-    showLogin();
-    return;
-  }
-  if (body?.code === 0) showDash();
-  else showLogin();
-}
-
-async function doLogin() {
-  const token = el.loginToken.value.trim();
-  el.loginError.hidden = true;
-  const { res, body } = await api("/api/admin/login", {
-    method: "POST",
-    body: JSON.stringify({ token }),
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-  });
-  if (body?.code === 0 && body.data?.session_token) {
-    state.sessionToken = body.data.session_token;
-    sessionStorage.setItem("wtmd_admin_session", state.sessionToken);
-    el.loginToken.value = "";
-    showDash();
-    showToast("登录成功");
-    return;
-  }
-  el.loginError.hidden = false;
-  if (res.status === 403) {
-    el.loginError.textContent = `IP 已被封禁${body?.data?.expires_at ? `至 ${body.data.expires_at}` : ""}`;
-  } else if (res.status === 429) {
-    el.loginError.textContent = "尝试过于频繁，请稍后再试";
-  } else {
-    el.loginError.textContent = body?.message || "登录失败";
-  }
-}
-
-async function doLogout() {
-  await api("/api/admin/logout", { method: "POST", admin: true });
-  state.sessionToken = "";
-  sessionStorage.removeItem("wtmd_admin_session");
-  showLogin();
-  showToast("已退出登录");
-}
-
-function bindTabs() {
-  const tabs = document.querySelectorAll("#admin-tabs .tab");
-  tabs.forEach((tab) => {
-    tab.addEventListener("click", () => {
-      tabs.forEach((t) => t.classList.remove("is-active"));
-      tab.classList.add("is-active");
-      const name = tab.dataset.tab;
-      document.querySelectorAll(".tab-panel").forEach((panel) => {
-        panel.hidden = panel.dataset.panel !== name;
-      });
-    });
-  });
-}
-
-function fillSettingsForm(cfg) {
-  state.adminConfig = cfg;
-  document.getElementById("set-page-title").value = cfg.page_title || "";
-  document.getElementById("set-page-subtitle").value = cfg.page_subtitle || "";
-  document.getElementById("set-refresh").value = cfg.refresh_interval_seconds ?? 5;
-  document.getElementById("set-per-page").value = cfg.devices_per_page ?? 12;
-  document.getElementById("set-show-history").checked = !!cfg.show_history;
-  document.getElementById("set-default-scheme").value = cfg.default_device_scheme || "http";
-  document.getElementById("set-trust-proxy").checked = !!cfg.trust_proxy;
-  document.getElementById("set-forwarded-allow-ips").value = cfg.forwarded_allow_ips || "*";
-  document.getElementById("set-serve-mode").value = cfg.serve?.mode || "http";
-  document.getElementById("set-serve-host").value = cfg.serve?.host || "127.0.0.1";
-  document.getElementById("set-serve-port").value = cfg.serve?.port ?? 8080;
-  document.getElementById("set-ssl-cert").value = cfg.serve?.ssl_certfile || "";
-  document.getElementById("set-ssl-key").value = cfg.serve?.ssl_keyfile || "";
-  const log = cfg.log || {};
-  document.getElementById("set-log-level").value = log.level || "INFO";
-  document.getElementById("set-log-dir").value = log.dir || "logs";
-  document.getElementById("set-log-filename").value = log.filename || "webui.log";
-  document.getElementById("set-log-max-bytes").value = log.max_bytes ?? 5242880;
-  document.getElementById("set-log-backup").value = log.backup_count ?? 5;
-  document.getElementById("set-log-console").checked = log.console !== false;
-  document.getElementById("set-log-access").checked = log.access_log !== false;
-  document.getElementById("set-admin-token").value = "";
-}
-
-async function loadAdminConfig() {
-  const { body } = await api("/api/admin/config", { admin: true });
-  if (body?.code === 0) fillSettingsForm(body.data);
-}
-
-async function saveSettings() {
-  const payload = {
-    page_title: document.getElementById("set-page-title").value.trim(),
-    page_subtitle: document.getElementById("set-page-subtitle").value.trim(),
-    refresh_interval_seconds: Number(document.getElementById("set-refresh").value),
-    devices_per_page: Number(document.getElementById("set-per-page").value),
-    show_history: document.getElementById("set-show-history").checked,
-    default_device_scheme: document.getElementById("set-default-scheme").value,
-    trust_proxy: document.getElementById("set-trust-proxy").checked,
-    forwarded_allow_ips:
-      document.getElementById("set-forwarded-allow-ips").value.trim() || "*",
-    serve: {
-      mode: document.getElementById("set-serve-mode").value,
-      host: document.getElementById("set-serve-host").value.trim(),
-      port: Number(document.getElementById("set-serve-port").value),
-      ssl_certfile: document.getElementById("set-ssl-cert").value.trim() || null,
-      ssl_keyfile: document.getElementById("set-ssl-key").value.trim() || null,
-    },
-    log: {
-      level: document.getElementById("set-log-level").value,
-      dir: document.getElementById("set-log-dir").value.trim() || "logs",
-      filename: document.getElementById("set-log-filename").value.trim() || "webui.log",
-      max_bytes: Number(document.getElementById("set-log-max-bytes").value) || 5242880,
-      backup_count: Number(document.getElementById("set-log-backup").value),
-      console: document.getElementById("set-log-console").checked,
-      access_log: document.getElementById("set-log-access").checked,
-    },
-  };
-  const newToken = document.getElementById("set-admin-token").value;
-  if (newToken) payload.admin_token = newToken;
-
-  const { body } = await api("/api/admin/config", {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-    admin: true,
-  });
-  if (body?.code === 0) {
-    showToast("设置已保存");
-    await loadPublicConfig();
-    await loadAdminConfig();
-    startStream();
-  } else {
-    showToast(body?.message || "保存失败");
-  }
-}
-
-function renderAdminDevices(devices) {
-  const root = document.getElementById("device-admin-list");
-  root.innerHTML = "";
-  if (!devices?.length) {
-    root.innerHTML = `<p class="muted">尚未添加设备</p>`;
-    return;
-  }
-  for (const device of devices) {
-    const item = document.createElement("div");
-    item.className = "device-admin-item";
-    const health = device.health;
-    const badge = health ? statusBadge(health) : { cls: "warn", label: "未采样" };
-    item.innerHTML = `
-      <div class="meta">
-        <strong></strong>
-        <span class="url"></span>
-      </div>
-      <div class="actions">
-        <span class="badge ${badge.cls}"><span class="dot"></span><span class="badge-label"></span></span>
-        <button type="button" class="btn btn-ghost btn-small" data-act="test">测试</button>
-        <button type="button" class="btn btn-ghost btn-small" data-act="edit">编辑</button>
-        <button type="button" class="btn btn-danger btn-small" data-act="del">删除</button>
-      </div>
-    `;
-    item.querySelector("strong").textContent = `${device.name}（${device.id}）`;
-    item.querySelector(".url").textContent = device.api_base_url;
-    item.querySelector(".badge-label").textContent = badge.label;
-    item.addEventListener("click", async (e) => {
-      const btn = e.target.closest("button[data-act]");
-      if (!btn) return;
-      const act = btn.dataset.act;
-      if (act === "test") await testDevice(device.id);
-      if (act === "edit") openDeviceForm(device);
-      if (act === "del") await deleteDevice(device.id);
-    });
-    root.appendChild(item);
-  }
-}
-
-function openDeviceForm(device) {
-  const form = document.getElementById("device-form");
-  form.hidden = false;
-  document.getElementById("device-form-title").textContent = device ? "编辑设备" : "添加设备";
-  document.getElementById("dev-original-id").value = device?.id || "";
-  document.getElementById("dev-id").value = device?.id || "";
-  document.getElementById("dev-id").disabled = !!device;
-  document.getElementById("dev-name").value = device?.name || "";
-  document.getElementById("dev-url").value = device?.api_base_url || "";
-  document.getElementById("dev-token").value = device?.viewer_token || "";
-  document.getElementById("dev-enabled").checked = device ? !!device.enabled : true;
-}
-
-function closeDeviceForm() {
-  document.getElementById("device-form").hidden = true;
-  document.getElementById("dev-id").disabled = false;
-}
-
-async function loadAdminDevices() {
-  const { body } = await api("/api/admin/devices", { admin: true });
-  if (body?.code === 0) renderAdminDevices(body.data?.devices || []);
-}
-
-async function saveDevice() {
-  const id = document.getElementById("dev-id").value.trim();
-  const originalId = document.getElementById("dev-original-id").value.trim();
-  const payload = {
-    id,
-    name: document.getElementById("dev-name").value.trim(),
-    api_base_url: document.getElementById("dev-url").value.trim(),
-    viewer_token: document.getElementById("dev-token").value,
-    enabled: document.getElementById("dev-enabled").checked,
-  };
-  const path = originalId
-    ? `/api/admin/devices/${encodeURIComponent(originalId)}`
-    : "/api/admin/devices";
-  const { body } = await api(path, {
-    method: originalId ? "PUT" : "POST",
-    body: JSON.stringify(payload),
-    admin: true,
-  });
-  if (body?.code === 0) {
-    showToast(originalId ? "设备已更新" : "设备已添加");
-    closeDeviceForm();
-    await loadAdminDevices();
-  } else {
-    showToast(body?.message || "保存设备失败");
-  }
-}
-
-async function deleteDevice(id) {
-  if (!window.confirm(`删除设备 ${id}？`)) return;
-  const { body } = await api(`/api/admin/devices/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    admin: true,
-  });
-  if (body?.code === 0) {
-    showToast("设备已删除");
-    await loadAdminDevices();
-  } else {
-    showToast(body?.message || "删除失败");
-  }
-}
-
-async function testDevice(id) {
-  showToast("正在测试连接…");
-  const { body } = await api(`/api/admin/devices/${encodeURIComponent(id)}/test`, {
-    method: "POST",
-    admin: true,
-  });
-  if (body?.code === 0) {
-    const report = body.data || {};
-    showToast(report.ok ? `连接成功 ${report.latency_ms ?? "?"}ms` : `失败：${report.error || "unknown"}`);
-  } else {
-    showToast(body?.message || "测试失败");
-  }
-}
-
-async function exportDevices() {
-  const { body } = await api("/api/admin/devices/export", { admin: true });
-  if (body?.code !== 0) {
-    showToast(body?.message || "导出失败");
-    return;
-  }
-  const blob = new Blob([JSON.stringify(body.data, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "devices.json";
-  a.click();
-  URL.revokeObjectURL(a.href);
-  showToast("已导出 devices.json");
-}
-
-async function loadStats() {
-  const { body } = await api("/api/admin/stats", { admin: true });
-  if (body?.code !== 0) return;
-  const data = body.data || {};
-  document.getElementById("stat-total-visits").textContent = String(data.total_visits || 0);
-  const dayList = document.getElementById("day-list");
-  dayList.innerHTML = "";
-  const entries = Object.entries(data.visits_by_date || {}).sort((a, b) => b[0].localeCompare(a[0]));
-  if (!entries.length) {
-    dayList.innerHTML = `<p class="muted">暂无按日数据</p>`;
-    return;
-  }
-  for (const [day, count] of entries) {
-    const row = document.createElement("div");
-    row.className = "day-row";
-    row.innerHTML = `<span></span><strong></strong>`;
-    row.querySelector("span").textContent = day;
-    row.querySelector("strong").textContent = String(count);
-    dayList.appendChild(row);
-  }
-}
-
-async function loadBans() {
-  const { body } = await api("/api/admin/bans", { admin: true });
-  const root = document.getElementById("ban-list");
-  root.innerHTML = "";
-  const bans = body?.data?.bans || [];
-  if (!bans.length) {
-    root.innerHTML = `<p class="muted">当前无封禁</p>`;
-    return;
-  }
-  for (const ban of bans) {
-    const row = document.createElement("div");
-    row.className = "ban-row";
-    row.innerHTML = `
-      <div><strong class="ip"></strong><div class="muted until"></div></div>
-      <button type="button" class="btn btn-ghost btn-small">解封</button>
-    `;
-    row.querySelector(".ip").textContent = ban.ip;
-    row.querySelector(".until").textContent = `至 ${ban.expires_at}`;
-    row.querySelector("button").addEventListener("click", async () => {
-      await api(`/api/admin/bans/${encodeURIComponent(ban.ip)}`, { method: "DELETE", admin: true });
-      showToast(`已解封 ${ban.ip}`);
-      loadBans();
-    });
-    root.appendChild(row);
-  }
-}
-
-async function loadAudit() {
-  const { body } = await api("/api/admin/audit?limit=50", { admin: true });
-  const root = document.getElementById("audit-list");
-  root.innerHTML = "";
-  const entries = body?.data?.entries || [];
-  if (!entries.length) {
-    root.innerHTML = `<p class="muted">暂无审计记录</p>`;
-    return;
-  }
-  for (const entry of entries.slice().reverse()) {
-    const row = document.createElement("div");
-    row.className = "audit-row";
-    row.innerHTML = `<div><strong class="act"></strong> <span class="muted ts"></span></div><div class="detail"></div>`;
-    row.querySelector(".act").textContent = entry.action;
-    row.querySelector(".ts").textContent = entry.ts;
-    row.querySelector(".detail").textContent = `${entry.ip}${entry.detail ? " · " + entry.detail : ""}`;
-    root.appendChild(row);
-  }
-}
-
-function loadAdminAll() {
-  loadAdminConfig();
-  loadAdminDevices();
-  loadStats();
-  loadBans();
-  loadAudit();
-}
-
-function bindEvents() {
-  el.adminOpen.addEventListener("click", openAdmin);
-  el.adminClose.addEventListener("click", closeAdmin);
-  el.adminScrim.addEventListener("click", closeAdmin);
-  el.loginSubmit.addEventListener("click", doLogin);
-  el.loginToken.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") doLogin();
-  });
-  document.getElementById("admin-logout").addEventListener("click", doLogout);
-  document.getElementById("save-settings").addEventListener("click", saveSettings);
-  document.getElementById("device-add").addEventListener("click", () => openDeviceForm(null));
-  document.getElementById("device-cancel").addEventListener("click", closeDeviceForm);
-  document.getElementById("device-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    saveDevice();
-  });
-  document.getElementById("export-devices").addEventListener("click", exportDevices);
-  document.getElementById("refresh-bans").addEventListener("click", loadBans);
-  document.getElementById("refresh-audit").addEventListener("click", loadAudit);
-  document.getElementById("refresh-logs").addEventListener("click", loadRecentLogs);
-  bindTabs();
-}
-
-async function loadRecentLogs() {
-  const viewer = document.getElementById("log-viewer");
-  viewer.hidden = false;
-  viewer.textContent = "加载中…";
-  const { body } = await api("/api/admin/logs?lines=80", { admin: true });
-  if (body?.code !== 0) {
-    viewer.textContent = body?.message || "无法加载日志";
-    return;
-  }
-  const lines = body.data?.lines || [];
-  viewer.textContent = lines.length
-    ? lines.join("\n")
-    : "暂无日志（或尚未写入）";
-}
-
 async function boot() {
-  bindEvents();
   await loadPublicConfig();
   startStream();
   // Fallback refresh also keeps history-less pages feeling live if SSE is blocked
