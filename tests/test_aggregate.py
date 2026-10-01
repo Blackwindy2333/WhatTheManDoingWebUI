@@ -1,23 +1,24 @@
-"""Aggregator and device helper tests."""
+"""Aggregator and upstream fetch auth tests."""
 
 from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 
-from server.aggregate import DeviceAggregator, DeviceSnapshot, build_snapshot, normalize_api_url
-from server.config import ConfigError, DeviceConfig, WebUIConfig
-from server.devices import apply_scheme, delete_device, device_to_dict, upsert_device
+from server.aggregate import (
+    DeviceAggregator,
+    DeviceSnapshot,
+    build_snapshot,
+    default_fetcher,
+    normalize_api_url,
+)
+from server.config import DeviceConfig, WebUIConfig
 
 
 def test_normalize_api_url():
     assert normalize_api_url("http://x/api/v1/") == "http://x/api/v1"
-
-
-def test_apply_scheme_default():
-    assert apply_scheme("host:8765/api/v1", "http") == "http://host:8765/api/v1"
-    assert apply_scheme("https://host/api/v1", "http") == "https://host/api/v1"
 
 
 def test_build_snapshot_error():
@@ -96,29 +97,79 @@ def test_multidevice_list_no_match_not_fabricated():
     assert _extract_device_payload(data, "a") == {}
 
 
-def test_upsert_and_delete_device(webui_config: WebUIConfig):
-    cfg = upsert_device(
-        webui_config,
-        {"id": "new-1", "name": "New", "api_base_url": "new:1/api/v1", "enabled": True},
+def test_default_fetcher_sends_bearer_api_token():
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "message": "ok",
+                "data": {
+                    "device_id": "a",
+                    "status": "active",
+                    "app": {"process_name": "Code.exe", "display_name": "VS Code"},
+                    "timestamp": "2026-01-01T00:00:00Z",
+                },
+            },
+        )
+
+    device = DeviceConfig(
+        id="a",
+        name="A",
+        api_base_url="http://x/api/v1",
+        api_token="secret-token",
     )
-    assert any(d.id == "new-1" for d in cfg.devices)
-    cfg2 = upsert_device(
-        cfg,
-        {"name": "New2", "api_base_url": "https://new2/api/v1", "enabled": False},
-        replace_id="new-1",
-    )
-    item = next(d for d in cfg2.devices if d.id == "new-1")
-    assert item.name == "New2"
-    assert item.api_base_url == "https://new2/api/v1"
-    cfg3 = delete_device(cfg2, "new-1")
-    assert all(d.id != "new-1" for d in cfg3.devices)
-    with pytest.raises(ConfigError):
-        delete_device(cfg3, "new-1")
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await default_fetcher(device, client=client)
+
+    result = asyncio.run(run())
+    assert result["ok"] is True
+    assert seen["authorization"] == "Bearer secret-token"
 
 
-def test_device_to_dict_keys(webui_config: WebUIConfig):
-    data = device_to_dict(webui_config.devices[0])
-    assert set(data) == {"id", "name", "api_base_url", "viewer_token", "enabled"}
+def test_default_fetcher_omits_auth_when_token_empty():
+    seen: dict[str, str | None] = {"authorization": "unset"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(
+            200,
+            json={"code": 0, "message": "ok", "data": {"device_id": "a", "status": "active", "app": None}},
+        )
+
+    device = DeviceConfig(id="a", name="A", api_base_url="http://x/api/v1", api_token="")
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await default_fetcher(device, client=client)
+
+    result = asyncio.run(run())
+    assert result["ok"] is True
+    assert seen["authorization"] is None
+
+
+def test_default_fetcher_unauthorized_message():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"code": 40100, "message": "invalid api token", "data": None})
+
+    device = DeviceConfig(id="a", name="A", api_base_url="http://x/api/v1", api_token="bad")
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await default_fetcher(device, client=client)
+
+    result = asyncio.run(run())
+    assert result["ok"] is False
+    assert result["http_status"] == 401
+    assert "api_token" in result["error"]
 
 
 def test_aggregator_refresh_with_fetcher(webui_config: WebUIConfig):
