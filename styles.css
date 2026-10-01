@@ -1,4 +1,4 @@
-﻿/* Apple-inspired design tokens 鈥?see DESIGN.md */
+/* Apple-inspired design tokens 鈥?see DESIGN.md */
 :root {
   color-scheme: light dark;
   --bg: #f5f5f7;
@@ -208,10 +208,6 @@ select {
   line-height: 1.1;
 }
 
-.stat-value.large {
-  font-size: 2rem;
-}
-
 .stat-label {
   font-size: 0.75rem;
   color: var(--ink-muted);
@@ -239,12 +235,6 @@ select {
 .muted {
   color: var(--ink-muted);
   font-size: 0.875rem;
-}
-
-.hint {
-  color: var(--ink-muted);
-  font-size: 0.8125rem;
-  margin: 0.25rem 0 1rem;
 }
 
 /* Device cards */
