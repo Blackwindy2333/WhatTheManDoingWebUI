@@ -30,7 +30,7 @@ from server.config import (
     config_to_public_dict,
     ensure_config,
 )
-from server.devices import fetch_device_history
+from server.devices import UpstreamAuthError, UpstreamHistoryError, fetch_device_history
 from server.log_setup import get_logger, setup_logging
 
 logger = get_logger("http")
@@ -236,6 +236,10 @@ def create_app(
         device = _find_device(device_id)
         try:
             data = await fetch_device_history(device, limit=limit)
+        except UpstreamAuthError as exc:
+            return fail(401, CODE_UNAUTHORIZED, str(exc))
+        except UpstreamHistoryError as exc:
+            return fail(502, CODE_INTERNAL, f"history fetch failed: {exc}")
         except Exception as exc:  # noqa: BLE001
             return fail(502, CODE_INTERNAL, f"history fetch failed: {exc}")
         return ok(data)
