@@ -38,13 +38,11 @@
 - 间距节奏：4 / 8 / 12 / 16 / 24 / 32 / 48
 - 设备网格：`auto-fill, minmax(260px, 1fr)`，卡片圆角 16px
 - 顶栏 sticky、半透明，内容可滚到其下；滚动边缘用渐变遮罩代替硬分割线
-- 管理表单：单列标签 + 控件，危险操作与主操作间距加大
 
 ## Motion
 
 - 按压：`:active { transform: scale(.97) }`，100ms ease-out（pointer-down 即反馈）
 - 卡片入场：opacity 0→1 + scale .98→1，180–220ms，stagger ≤ 30ms
-- 抽屉/模态：短位移 + fade，可中断（过渡可被再次点击打断，不锁输入）
 - **降级**：不引入 spring 库；不做 velocity 交接、橡皮筋、可拖拽 sheet
 - `prefers-reduced-motion: reduce`：去掉 transform，仅保留 ≤120ms 透明度变化
 
@@ -58,17 +56,15 @@
 | 屏 | 内容 |
 |----|------|
 | 公开监控 | 顶栏、设备卡片网格（健康角标、当前应用）、可选历史时间线 |
-| 管理登录 | Token 输入、错误提示、封禁文案 |
-| 管理面板 | WebUI 设置、设备 CRUD、测试连接、访问计数、连接方式、审计、导出 |
 
 ## Data / interaction
 
-- 浏览器只调本 WebUI API；设备 token 不下发。
+- 浏览器只调本 WebUI 公开 API；设备 `api_token` 不下发。
 - 刷新：默认 5s 轮询公开聚合接口；有 SSE 时优先 EventSource，断线回退轮询。
-- 管理会话：登录换短期 Bearer 会话；连续 5 次失败封 IP 24h。
+- 配置仅 `config.json`（无管理后台、无在线修改）。
 
 ## File map
 
 - `index.html` / `styles.css` / `app.js` — 唯一入口与 UI
-- `server/` — FastAPI 聚合代理 + 管理 API
+- `server/` — FastAPI 聚合代理 + 公开 API
 - `config.example.json` — 配置模板（真实 `config.json` 不入库）
