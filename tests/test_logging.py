@@ -1,4 +1,4 @@
-"""Logging setup and log-related config/API tests."""
+"""Logging setup tests."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from server.log_setup import (
 
 
 def test_validate_log_config_defaults():
-    cfg = validate_config_dict({"version": 1, "admin_token": "x", "devices": []})
+    cfg = validate_config_dict({"version": 1, "devices": []})
     assert cfg.log.level == "INFO"
     assert cfg.log.dir == "logs"
     assert cfg.log.filename == "webui.log"
@@ -31,7 +31,6 @@ def test_validate_log_config_rejects_bad_level():
         validate_config_dict(
             {
                 "version": 1,
-                "admin_token": "x",
                 "log": {"level": "VERBOSE"},
                 "devices": [],
             }
@@ -46,7 +45,6 @@ def test_validate_log_config_rejects_tiny_rotation():
         validate_config_dict(
             {
                 "version": 1,
-                "admin_token": "x",
                 "log": {"max_bytes": 10},
                 "devices": [],
             }
@@ -99,20 +97,11 @@ def test_resolve_log_path_absolute(tmp_path):
     assert resolve_log_path(cfg, base=Path("/should/not/matter")) == tmp_path / "x.log"
 
 
-def test_admin_logs_endpoint(client: TestClient, admin_headers):
-    resp = client.get("/api/admin/logs?lines=20", headers=admin_headers)
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["code"] == 0
-    assert "lines" in body["data"]
-    assert "path" in body["data"]
-
-
-def test_access_log_records_requests(client: TestClient, admin_headers, tmp_paths):
-    # create_app uses tmp config dir for logs when config_path is set
+def test_access_log_records_requests(client: TestClient, tmp_paths):
     client.get("/api/public/config")
-    resp = client.get("/api/admin/logs?lines=200", headers=admin_headers)
-    lines = resp.json()["data"]["lines"]
-    joined = "\n".join(lines)
-    assert "request" in joined
-    assert "/api/public/config" in joined
+    # Access logging writes to the config-adjacent logs dir created by create_app
+    log_path = tmp_paths["config"].parent / "logs" / "webui.log"
+    assert log_path.exists()
+    content = log_path.read_text(encoding="utf-8")
+    assert "request" in content
+    assert "/api/public/config" in content
