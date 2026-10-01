@@ -1,14 +1,27 @@
 ---
 feature: api-v1-config-only
-status: designed
+status: delivered
 updated: 2026-02-15
 branch: main
-commits: 
+commits: f776f5b..5a358e6
 ---
 
 # API v1 接入 · 仅配置文件改配置
 
 ## Report
+
+**What was built** — WebUI 对齐上游 WhatTheManDoing v1：每台设备使用 `api_token`，轮询/历史请求头为 `Authorization: Bearer <api_token>`（空 token 不发鉴权头）；HTTP 401/403 与 envelope `code=40100` 一律报 `unauthorized (api_token?)`，历史接口鉴权失败返回 401 而非伪装空列表。旧键 `viewer_token` 与全部后台配置项在校验层直接拒绝。
+
+网页管理后台整体拆除：无登录/会话/封禁/审计/访问统计，无 `/api/admin/*`；`server/auth.py`、`server/state.py` 删除。配置唯一来源是 `config.json`（改文件后重启生效）。前端仅保留公开只读监控（设备卡片、健康角标、历史时间线、SSE/轮询）。
+
+**Verification** — `python -m pytest -q`：**48 passed**（系统 Python 3.14）。首轮独立评审 2 个 CRITICAL（403/envelope 40100 未按鉴权处理、历史代理鉴权契约缺口）已修复；复审确认两项均解决，无新增 CRITICAL，[S2] 鉴权契约 PASS。
+
+**Journey log** —
+1. 上游收敛为单 `api_token` 后，WebUI 的 `viewer_token` 必须整体改名并在配置校验层拒绝旧键，避免静默读不到 token。
+2. 鉴权失败是三条路径（HTTP 401、HTTP 403、envelope `code=40100`），只测 401 会“全绿”却漏契约。
+3. 历史代理原先 `raise_for_status()` + 空 data 兜底，会把鉴权失败变成 502 或假空历史；需先判鉴权再兜底。
+4. SSE 测试用 `TestClient.stream` 会挂死（生成器不结束）；改为断言路由注册即可。
+5. 用户指定直接在 `main` 上按文件提交（覆盖 compose-next 默认 worktree）。
 
 ## [S1] Problem
 
@@ -87,11 +100,11 @@ commits:
 
 ## Tasks
 
-- [ ] T1: `config.py` 去掉后台字段并改用 `api_token` — acceptance: 校验通过新字段；`viewer_token`/`admin_token` 等不再接受 (covers: S2)
-- [ ] T2: `aggregate.py` 以 Bearer `api_token` 对接 v1 路径 — acceptance: 请求头与 401 文案更新；空 token 不发鉴权头 (covers: S2)
-- [ ] T3: `devices.py` 只保留 history 代理并用 `api_token` — acceptance: 无 CRUD/测试连接；历史回退 `/status/history` (covers: S2)
-- [ ] T4: `main.py` 拆除 `/api/admin/*` 与 state/auth 依赖 — acceptance: 仅公开路由；IP 解析仍用于日志 (covers: S2)
-- [ ] T5: 删除 `auth.py`、`state.py` 及 state 测试 — acceptance: 仓库无会话/封禁/审计代码 (covers: S2)
-- [ ] T6: 前端移除管理 UI（html/js/css） — acceptance: 无登录/管理入口；公开监控可用 (covers: S2)
-- [ ] T7: 测试改为公开 API + `api_token` 契约 — acceptance: `python -m pytest` 全绿 (covers: S2)
-- [ ] T8: 同步 `config.example.json` / README / DESIGN.md — acceptance: 文档描述仅文件配置与 v1 Token (covers: S1, S2)
+- [x] T1: `config.py` 去掉后台字段并改用 `api_token` — acceptance: 校验通过新字段；`viewer_token`/`admin_token` 等不再接受 (covers: S2)
+- [x] T2: `aggregate.py` 以 Bearer `api_token` 对接 v1 路径 — acceptance: 请求头与 401 文案更新；空 token 不发鉴权头 (covers: S2)
+- [x] T3: `devices.py` 只保留 history 代理并用 `api_token` — acceptance: 无 CRUD/测试连接；历史回退 `/status/history` (covers: S2)
+- [x] T4: `main.py` 拆除 `/api/admin/*` 与 state/auth 依赖 — acceptance: 仅公开路由；IP 解析仍用于日志 (covers: S2)
+- [x] T5: 删除 `auth.py`、`state.py` 及 state 测试 — acceptance: 仓库无会话/封禁/审计代码 (covers: S2)
+- [x] T6: 前端移除管理 UI（html/js/css） — acceptance: 无登录/管理入口；公开监控可用 (covers: S2)
+- [x] T7: 测试改为公开 API + `api_token` 契约 — acceptance: `python -m pytest` 全绿 (covers: S2)
+- [x] T8: 同步 `config.example.json` / README / DESIGN.md — acceptance: 文档描述仅文件配置与 v1 Token (covers: S1, S2)
