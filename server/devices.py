@@ -1,4 +1,4 @@
-"""Device list helpers for admin CRUD and history proxy."""
+"""History proxy for configured WhatTheManDoing devices."""
 
 from __future__ import annotations
 
@@ -6,228 +6,18 @@ from typing import Any
 
 import httpx
 
-from server.config import ConfigError, DeviceConfig, WebUIConfig, validate_config_dict
 from server.aggregate import normalize_api_url
+from server.config import DeviceConfig
 from server.log_setup import get_logger
 
 logger = get_logger("devices")
 
 
-def device_to_dict(device: DeviceConfig) -> dict[str, Any]:
-    return {
-        "id": device.id,
-        "name": device.name,
-        "api_base_url": device.api_base_url,
-        "viewer_token": device.viewer_token,
-        "enabled": device.enabled,
-    }
-
-
-def apply_scheme(url: str, scheme: str, default_scheme: str = "http") -> str:
-    """Ensure URL has a scheme and a host; empty input stays empty for validation to reject."""
-    url = url.strip()
-    if not url:
-        return ""
-    if url.startswith("http://") or url.startswith("https://"):
-        normalized = normalize_api_url(url)
-        # "http://" or "https://" with no host is invalid
-        rest = normalized.split("://", 1)[-1]
-        if not rest:
-            return ""
-        return normalized
-    url = url.lstrip("/")
-    if not url:
-        return ""
-    chosen = scheme if scheme in ("http", "https") else default_scheme
-    return normalize_api_url(f"{chosen}://{url}")
-
-
-def upsert_device(config: WebUIConfig, raw: dict[str, Any], *, replace_id: str | None = None) -> WebUIConfig:
-    """Return a new validated config with device inserted/updated."""
-    data = {
-        "version": config.version,
-        "admin_token": config.admin_token,
-        "session_ttl_seconds": config.session_ttl_seconds,
-        "login_max_failures": config.login_max_failures,
-        "ban_duration_hours": config.ban_duration_hours,
-        "login_rate_limit_per_minute": config.login_rate_limit_per_minute,
-        "refresh_interval_seconds": config.refresh_interval_seconds,
-        "page_title": config.page_title,
-        "page_subtitle": config.page_subtitle,
-        "show_history": config.show_history,
-        "devices_per_page": config.devices_per_page,
-        "trust_proxy": config.trust_proxy,
-        "forwarded_allow_ips": config.forwarded_allow_ips,
-        "default_device_scheme": config.default_device_scheme,
-        "serve": {
-            "mode": config.serve.mode,
-            "host": config.serve.host,
-            "port": config.serve.port,
-            "ssl_certfile": config.serve.ssl_certfile,
-            "ssl_keyfile": config.serve.ssl_keyfile,
-        },
-        "log": {
-            "level": config.log.level,
-            "dir": config.log.dir,
-            "filename": config.log.filename,
-            "max_bytes": config.log.max_bytes,
-            "backup_count": config.log.backup_count,
-            "console": config.log.console,
-            "access_log": config.log.access_log,
-        },
-        "devices": [device_to_dict(d) for d in config.devices],
-    }
-
-    device_id = str(raw.get("id") or "").strip()
-    if replace_id is not None:
-        device_id = replace_id
-        raw = {**raw, "id": replace_id}
-
-    if not device_id:
-        raise ConfigError("device id is required")
-
-    api_base_url = apply_scheme(
-        str(raw.get("api_base_url") or ""),
-        config.default_device_scheme,
-    )
-    if not api_base_url:
-        raise ConfigError("api_base_url is required")
-    enabled = raw.get("enabled", True)
-    if not isinstance(enabled, bool):
-        raise ConfigError("enabled must be a bool")
-    entry = {
-        "id": device_id,
-        "name": str(raw.get("name") or device_id),
-        "api_base_url": api_base_url,
-        "viewer_token": str(raw.get("viewer_token") or ""),
-        "enabled": enabled,
-    }
-
-    devices = data["devices"]
-    for i, existing in enumerate(devices):
-        if existing["id"] == device_id:
-            if replace_id is None and raw.get("id") and raw.get("id") != existing["id"]:
-                raise ConfigError("device id mismatch")
-            devices[i] = entry
-            break
-    else:
-        devices.append(entry)
-
-    return validate_config_dict(data)
-
-
-def delete_device(config: WebUIConfig, device_id: str) -> WebUIConfig:
-    data_devices = [device_to_dict(d) for d in config.devices if d.id != device_id]
-    if len(data_devices) == len(config.devices):
-        raise ConfigError(f"device not found: {device_id}")
-    return upsert_config_devices(config, data_devices)
-
-
-def upsert_config_devices(config: WebUIConfig, devices: list[dict[str, Any]]) -> WebUIConfig:
-    data = {
-        "version": config.version,
-        "admin_token": config.admin_token,
-        "session_ttl_seconds": config.session_ttl_seconds,
-        "login_max_failures": config.login_max_failures,
-        "ban_duration_hours": config.ban_duration_hours,
-        "login_rate_limit_per_minute": config.login_rate_limit_per_minute,
-        "refresh_interval_seconds": config.refresh_interval_seconds,
-        "page_title": config.page_title,
-        "page_subtitle": config.page_subtitle,
-        "show_history": config.show_history,
-        "devices_per_page": config.devices_per_page,
-        "trust_proxy": config.trust_proxy,
-        "forwarded_allow_ips": config.forwarded_allow_ips,
-        "default_device_scheme": config.default_device_scheme,
-        "serve": {
-            "mode": config.serve.mode,
-            "host": config.serve.host,
-            "port": config.serve.port,
-            "ssl_certfile": config.serve.ssl_certfile,
-            "ssl_keyfile": config.serve.ssl_keyfile,
-        },
-        "log": {
-            "level": config.log.level,
-            "dir": config.log.dir,
-            "filename": config.log.filename,
-            "max_bytes": config.log.max_bytes,
-            "backup_count": config.log.backup_count,
-            "console": config.log.console,
-            "access_log": config.log.access_log,
-        },
-        "devices": devices,
-    }
-    return validate_config_dict(data)
-
-
-async def test_device_connection(device: DeviceConfig, timeout: float = 5.0) -> dict[str, Any]:
-    """Probe a device API health/status endpoint and return a connectivity report."""
-    base = normalize_api_url(device.api_base_url)
+def auth_headers(device: DeviceConfig) -> dict[str, str]:
     headers = {"Accept": "application/json"}
-    if device.viewer_token:
-        headers["Authorization"] = f"Bearer {device.viewer_token}"
-    started = httpx.AsyncClient(timeout=timeout)
-    import time
-
-    t0 = time.perf_counter()
-    async with started as client:
-        for path in (f"{base}/health", f"{base}/status", f"{base}/devices/{device.id}"):
-            try:
-                resp = await client.get(path, headers=headers)
-            except httpx.HTTPError as exc:
-                err = str(exc) or exc.__class__.__name__
-                logger.warning("device test connection error id=%s path=%s error=%s", device.id, path, err)
-                return {
-                    "ok": False,
-                    "path": path,
-                    "http_status": None,
-                    "latency_ms": int((time.perf_counter() - t0) * 1000),
-                    "error": err,
-                }
-            latency_ms = int((time.perf_counter() - t0) * 1000)
-            if resp.status_code == 200:
-                message = "ok"
-                try:
-                    body = resp.json()
-                    if isinstance(body, dict):
-                        message = str(body.get("message") or "ok")
-                except ValueError:
-                    message = "ok (non-json)"
-                logger.info(
-                    "device test ok id=%s path=%s latency_ms=%s",
-                    device.id,
-                    path,
-                    latency_ms,
-                )
-                return {
-                    "ok": True,
-                    "path": path,
-                    "http_status": 200,
-                    "latency_ms": latency_ms,
-                    "error": None,
-                    "message": message,
-                }
-            if resp.status_code in (401, 403):
-                logger.warning(
-                    "device test unauthorized id=%s path=%s status=%s",
-                    device.id,
-                    path,
-                    resp.status_code,
-                )
-                return {
-                    "ok": False,
-                    "path": path,
-                    "http_status": resp.status_code,
-                    "latency_ms": latency_ms,
-                    "error": "unauthorized",
-                }
-    return {
-        "ok": False,
-        "path": f"{base}/health",
-        "http_status": None,
-        "latency_ms": int((time.perf_counter() - t0) * 1000),
-        "error": "no reachable endpoint",
-    }
+    if device.api_token:
+        headers["Authorization"] = f"Bearer {device.api_token}"
+    return headers
 
 
 async def fetch_device_history(
@@ -236,14 +26,12 @@ async def fetch_device_history(
     timeout: float = 5.0,
 ) -> dict[str, Any]:
     base = normalize_api_url(device.api_base_url)
-    headers = {"Accept": "application/json"}
-    if device.viewer_token:
-        headers["Authorization"] = f"Bearer {device.viewer_token}"
+    headers = auth_headers(device)
     url = f"{base}/devices/{device.id}/history"
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.get(url, headers=headers, params={"limit": limit})
         if resp.status_code == 404:
-            # Fall back to local history endpoint
+            # Fall back to local history endpoint (single-machine API)
             resp = await client.get(f"{base}/status/history", headers=headers, params={"limit": limit})
         resp.raise_for_status()
         body = resp.json()
