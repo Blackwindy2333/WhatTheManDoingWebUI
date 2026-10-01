@@ -1,5 +1,6 @@
 # Local config & runtime state (never commit secrets)
 config.json
+config.json.bak-*
 state.json
 *.local.json
 
