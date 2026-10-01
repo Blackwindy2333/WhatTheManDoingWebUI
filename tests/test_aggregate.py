@@ -172,6 +172,39 @@ def test_default_fetcher_unauthorized_message():
     assert "api_token" in result["error"]
 
 
+def test_default_fetcher_forbidden_is_auth_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"code": 40300, "message": "forbidden", "data": None})
+
+    device = DeviceConfig(id="a", name="A", api_base_url="http://x/api/v1", api_token="bad")
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await default_fetcher(device, client=client)
+
+    result = asyncio.run(run())
+    assert result["ok"] is False
+    assert result["http_status"] == 403
+    assert result["error"] == "unauthorized (api_token?)"
+
+
+def test_default_fetcher_envelope_unauthorized_is_auth_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"code": 40100, "message": "invalid api token", "data": None})
+
+    device = DeviceConfig(id="a", name="A", api_base_url="http://x/api/v1", api_token="bad")
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await default_fetcher(device, client=client)
+
+    result = asyncio.run(run())
+    assert result["ok"] is False
+    assert result["error"] == "unauthorized (api_token?)"
+
+
 def test_aggregator_refresh_with_fetcher(webui_config: WebUIConfig):
     async def fetcher(device: DeviceConfig):
         return {
